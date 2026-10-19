@@ -1,0 +1,15 @@
+! ~/.Xresources - Abyss Linux (loaded by ~/.xinitrc with xrdb -merge)
+! xmenu theme for the top-right Abyss menu (abyss-control-center)
+
+xmenu.font:            JetBrainsMono Nerd Font:size=10,Symbols Nerd Font Mono:size=10
+xmenu.background:      #0d0b18
+xmenu.foreground:      #f3e8ff
+xmenu.selbackground:   #a855f7
+xmenu.selforeground:   #090514
+xmenu.separator:       #2e1065
+xmenu.border:          #c084fc
+xmenu.borderWidth:     2
+xmenu.separatorWidth:  1
+xmenu.width:           230
+xmenu.height:          28
+xmenu.gap:             0

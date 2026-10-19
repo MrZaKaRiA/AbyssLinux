@@ -1,0 +1,58 @@
+# ~/.config/sxhkd/sxhkdrc - Abyss Linux global hotkeys
+#
+# dwm (config.h) owns Super+<key> and Super+Shift+<key>. sxhkd only takes
+# keys dwm does not grab (media keys and Super+Alt+<letter>) so the two
+# never fight over the same grab. Reload: pkill -USR1 -x sxhkd
+
+# ---- Abyss menu sections -------------------------------------------------
+super + alt + n
+	abyss-control-center net-tui
+super + alt + a
+	abyss-control-center audio-gui
+super + alt + d
+	abyss-control-center display-gui
+super + alt + e
+	abyss-control-center files
+super + alt + m
+	abyss-control-center monitor
+super + alt + u
+	abyss-control-center update
+super + alt + l
+	abyss-control-center lock
+super + alt + k
+	abyss-control-center kbd-swap
+super + alt + Escape
+	abyss-control-center poweroff
+
+# ---- Apps ----------------------------------------------------------------
+super + alt + r
+	abyss-launcher drun
+super + alt + w
+	abyss-launcher window
+super + alt + f
+	abyss-control-center lf
+super + alt + v
+	abyss-control-center vim
+
+# ---- Notifications (dunst) -----------------------------------------------
+super + alt + c
+	dunstctl close-all
+super + alt + h
+	dunstctl history-pop
+
+# ---- Media keys (PipeWire / wireplumber) ---------------------------------
+XF86AudioRaiseVolume
+	wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ 5%+
+XF86AudioLowerVolume
+	wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-
+XF86AudioMute
+	wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle
+XF86AudioMicMute
+	wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle
+
+# ---- Brightness (only does something if brightnessctl is installed) -------
+XF86MonBrightnessUp
+	command -v brightnessctl >/dev/null && brightnessctl set 5%+
+XF86MonBrightnessDown
+	command -v brightnessctl >/dev/null && brightnessctl set 5%-
+

@@ -1,0 +1,51 @@
+#!/bin/sh
+# ==============================================================================
+# abyss-installer - run void-installer in a large, readable terminal
+#
+# Under X it opens its own st window with a big font (scaled by Xft.dpi like
+# everything else) and runs the installer as root. The dialog theme itself is
+# /etc/dialogrc (dark background, light text, purple highlight); inside st the
+# MAGENTA slot is set to the Abyss accent #a855f7 for this window only.
+#
+#   abyss-installer            open the installer (menu: Install Abyss Linux)
+#   ABYSS_INSTALLER_FONT=...   override the font, e.g. "JetBrainsMono Nerd Font:size=16"
+# ==============================================================================
+
+PATH="/usr/local/bin:/usr/bin:/usr/sbin:/bin:/sbin"
+FONT="${ABYSS_INSTALLER_FONT:-JetBrainsMono Nerd Font:size=14}"
+TITLE="Abyss Linux Installer"
+
+if [ "${1:-}" != --inner ] && [ -n "${DISPLAY:-}" ]; then
+    if command -v st >/dev/null 2>&1; then
+        exec st -t "$TITLE" -f "$FONT" -e "$0" --inner
+    elif command -v alacritty >/dev/null 2>&1; then
+        exec alacritty -T "$TITLE" -o font.size=16 -e "$0" --inner
+    fi
+fi
+
+accent() {
+    case "${TERM:-}" in
+        st*|xterm*|alacritty*) printf "$1" ;;
+    esac
+}
+
+accent '\033]4;5;#a855f7\007'
+
+if [ "$(id -u)" -eq 0 ]; then
+    void-installer
+elif sudo -n true 2>/dev/null; then
+    sudo void-installer          # live user: passwordless sudo
+elif command -v doas >/dev/null 2>&1 && [ -e /etc/doas.conf ]; then
+    doas void-installer
+else
+    sudo void-installer
+fi
+rc=$?
+
+accent '\033]104;5\007'
+
+if [ "$rc" -ne 0 ] && [ "${1:-}" = --inner ]; then
+    printf '\nThe installer exited with status %s. Press Enter to close. ' "$rc"
+    read -r _
+fi
+exit "$rc"

@@ -1,0 +1,164 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# dmenu-ssh - 1-Click Saved SSH & Multi-File Upload Manager
+# Parses ~/.ssh/config, adds new servers, connects via st/tabbed,
+# uploads files/directories via zenity + rsync, mounts SSHFS, or opens FileZilla
+# ==============================================================================
+
+set -u
+
+SSH_DIR="${HOME}/.ssh"
+SSH_CONFIG="${SSH_DIR}/config"
+DMENU_OPTS=(-i -l 12)
+
+mkdir -p "$SSH_DIR"
+chmod 700 "$SSH_DIR"
+touch "$SSH_CONFIG"
+chmod 600 "$SSH_CONFIG"
+
+notify_msg() {
+    local title="$1"
+    local body="$2"
+    if command -v notify-send >/dev/null 2>&1; then
+        notify-send "$title" "$body"
+    fi
+}
+
+get_saved_hosts() {
+    awk '
+        tolower($1) == "host" {
+            for (i = 2; i <= NF; i++) {
+                if ($i != "*" && $i !~ /[*?]/) {
+                    print $i
+                }
+            }
+        }
+    ' "$SSH_CONFIG"
+}
+
+add_new_server() {
+    local alias_name user_host port_num id_file user_part host_part
+
+    alias_name=$(printf "" | dmenu -i -p "Alias (e.g. prod-server):")
+    [[ -z "${alias_name:-}" ]] && exit 0
+
+    user_host=$(printf "" | dmenu -i -p "User@Host (e.g. root@203.0.113.10):")
+    [[ -z "${user_host:-}" ]] && exit 0
+
+    port_num=$(printf "22\n2222" | dmenu -i -p "Port (default 22):")
+    port_num="${port_num:-22}"
+
+    id_file=$(printf "~/.ssh/id_ed25519\n~/.ssh/id_rsa\n(none)" | dmenu -i -p "IdentityFile (optional):")
+
+    if [[ "$user_host" == *"@"* ]]; then
+        user_part="${user_host%@*}"
+        host_part="${user_host#*@}"
+    else
+        user_part="${USER}"
+        host_part="${user_host}"
+    fi
+
+    {
+        printf "\nHost %s\n" "$alias_name"
+        printf "    HostName %s\n" "$host_part"
+        printf "    User %s\n" "$user_part"
+        printf "    Port %s\n" "$port_num"
+        if [[ -n "${id_file:-}" && "$id_file" != "(none)" ]]; then
+            printf "    IdentityFile %s\n" "$id_file"
+        fi
+    } >> "$SSH_CONFIG"
+
+    chmod 600 "$SSH_CONFIG"
+    notify_msg "SSH Server Saved" "Added '${alias_name}' (${user_part}@${host_part}:${port_num}) to ~/.ssh/config"
+    echo "$alias_name"
+}
+
+HOSTS_LIST=$(get_saved_hosts)
+if [[ -n "$HOSTS_LIST" ]]; then
+    MENU_INPUT=$(printf "%s\n+ Add New Server" "$HOSTS_LIST")
+else
+    MENU_INPUT="+ Add New Server"
+fi
+
+SELECTED_HOST=$(printf "%s\n" "$MENU_INPUT" | dmenu "${DMENU_OPTS[@]}" -p "🌐 SSH Server:")
+[[ -z "${SELECTED_HOST:-}" ]] && exit 0
+
+if [[ "$SELECTED_HOST" == "+ Add New Server" ]]; then
+    SELECTED_HOST=$(add_new_server)
+    [[ -z "${SELECTED_HOST:-}" ]] && exit 0
+fi
+
+ACTION_MENU=$(cat << 'EOF'
+1. Connect in Terminal (SSH)
+2. Connect in Tabbed Terminal
+3. Upload Multiple Files (GUI Picker)
+4. Upload Directory (GUI Picker)
+5. Mount Remote Filesystem (SSHFS)
+6. Open in FileZilla
+EOF
+)
+
+ACTION=$(printf "%s\n" "$ACTION_MENU" | dmenu "${DMENU_OPTS[@]}" -p "⚡ Action (${SELECTED_HOST}):")
+[[ -z "${ACTION:-}" ]] && exit 0
+
+case "$ACTION" in
+    "1. Connect in Terminal (SSH)")
+        exec st -e ssh "$SELECTED_HOST"
+        ;;
+    "2. Connect in Tabbed Terminal")
+        exec tabbed -c st -w '' -e ssh "$SELECTED_HOST"
+        ;;
+    "3. Upload Multiple Files (GUI Picker)")
+        FILES=$(zenity --file-selection --multiple --separator=" " --title="Select Files to Upload to ${SELECTED_HOST}:~/" 2>/dev/null || true)
+        [[ -z "${FILES:-}" ]] && exit 0
+        # shellcheck disable=SC2086
+        exec st -e bash -c "
+            echo '=== Uploading selected files to ${SELECTED_HOST}:~/ ==='
+            rsync -avzP ${FILES} '${SELECTED_HOST}:~/'
+            status=\$?
+            echo ''
+            if [ \$status -eq 0 ]; then
+                echo '✅ Upload complete!'
+            else
+                echo \"❌ Upload exited with status \$status\"
+            fi
+            read -r -p 'Press Enter to close...'
+        "
+        ;;
+    "4. Upload Directory (GUI Picker)")
+        DIR=$(zenity --file-selection --directory --title="Select Directory to Upload to ${SELECTED_HOST}:~/" 2>/dev/null || true)
+        [[ -z "${DIR:-}" ]] && exit 0
+        exec st -e bash -c '
+            host="$1"
+            dir="$2"
+            echo "=== Uploading directory ${dir} to ${host}:~/ ==="
+            rsync -avzP "$dir" "${host}:~/"
+            status=$?
+            echo ""
+            if [ $status -eq 0 ]; then
+                echo "✅ Directory upload complete!"
+            else
+                echo "❌ Directory upload exited with status $status"
+            fi
+            read -r -p "Press Enter to close..."
+        ' _ "$SELECTED_HOST" "$DIR"
+        ;;
+    "5. Mount Remote Filesystem (SSHFS)")
+        MOUNT_DIR="${HOME}/Remote/${SELECTED_HOST}"
+        mkdir -p "$MOUNT_DIR"
+        if ! mountpoint -q "$MOUNT_DIR" 2>/dev/null; then
+            if sshfs "${SELECTED_HOST}:/" "$MOUNT_DIR" -o reconnect,ServerAliveInterval=15,ServerAliveCountMax=3; then
+                notify_msg "SSHFS Mounted" "Mounted ${SELECTED_HOST}:/ at ${MOUNT_DIR}"
+            else
+                notify_msg "SSHFS Error" "Failed to mount ${SELECTED_HOST}:/"
+                exit 1
+            fi
+        else
+            notify_msg "SSHFS Active" "${SELECTED_HOST} is already mounted at ${MOUNT_DIR}"
+        fi
+        exec thunar "$MOUNT_DIR"
+        ;;
+    "6. Open in FileZilla")
+        exec filezilla "sftp://${SELECTED_HOST}"
+        ;;
+esac

@@ -1,0 +1,233 @@
+#!/bin/sh
+# ==============================================================================
+# abyss-control-center - single top-right menu for Abyss Linux
+#
+# Opened by dwm when you click the menu icon on the status bar (ClkStatusText)
+# or press Super+Escape. Everything lives in one tree of submenus:
+#   Apps · System settings · Tools · Power
+#
+# Uses xmenu (real popup with nested submenus), anchored to the top-right
+# corner. Falls back to a flat, searchable dmenu list when xmenu is missing.
+#
+#   abyss-control-center            open the menu
+#   abyss-control-center <action>   run one action directly (used by sxhkd)
+#   abyss-control-center --check    list missing optional dependencies
+# ==============================================================================
+
+PATH="/usr/local/bin:${PATH}"
+SELF="$0"
+WALLPAPER=/usr/share/backgrounds/abyss/abyss-wallpaper.jpg
+# Sizes at 96 dpi, scaled by Xft.dpi (set by ~/.xinitrc for HiDPI screens)
+DPI=$(xrdb -query 2>/dev/null | awk '$1 == "Xft.dpi:" {print int($2); exit}')
+[ "${DPI:-0}" -ge 48 ] 2>/dev/null || DPI=96
+BAR_H=$(( 26 * DPI / 96 ))     # dwm bar height (px) - menu opens just below it
+MENU_W=$(( 230 * DPI / 96 ))   # matches xmenu.width merged by ~/.xinitrc
+
+FONT="JetBrainsMono Nerd Font:size=10"
+NB="#0d0b18" NF="#f3e8ff" SB="#a855f7" SF="#090514"
+
+has() { command -v "$1" >/dev/null 2>&1; }
+
+notify() {
+    if has notify-send; then notify-send -a "Abyss" "$1" "${2:-}"; else echo "$1 ${2:-}" >&2; fi
+}
+
+# Run the first available command of a list ("cmd args" strings), detached.
+first() {
+    for c in "$@"; do
+        has "${c%% *}" && { setsid -f sh -c "$c" >/dev/null 2>&1; return 0; }
+    done
+    notify "Not installed" "Need one of: $*"
+    return 1
+}
+
+term() {  # term "Title" command...
+    t="$1"; shift
+    if has st; then setsid -f st -t "$t" -e "$@" >/dev/null 2>&1
+    elif has alacritty; then setsid -f alacritty -T "$t" -e "$@" >/dev/null 2>&1
+    else notify "No terminal found" "Install st or alacritty"; fi
+}
+
+# Privilege helper for terminal actions: doas when configured, else sudo.
+priv() {
+    if has doas && [ -e /etc/doas.conf ]; then echo doas; else echo sudo; fi
+}
+
+dmenu_theme() { dmenu -i -c -l 14 -fn "$FONT" -nb "$NB" -nf "$NF" -sb "$SB" -sf "$SF" "$@"; }
+
+confirm() {  # confirm "Reboot"
+    if has xmenu; then
+        ans=$(printf '%s\tyes\nCancel\tno\n' "  $1 now" | xmenu $(menu_pos))
+    else
+        ans=$(printf 'No\nYes\n' | dmenu_theme -p "$1?")
+        [ "$ans" = Yes ] && ans=yes
+    fi
+    [ "$ans" = yes ]
+}
+
+# elogind/polkit lets the active local user power-manage without a password;
+# fall back to doas/sudo when there is no session manager.
+power() {
+    if has loginctl && loginctl "$1" 2>/dev/null; then return; fi
+    case "$1" in
+        suspend)   cmd=zzz ;;
+        hibernate) cmd=ZZZ ;;
+        *)         cmd="$1" ;;
+    esac
+    $(priv) -n "$cmd" 2>/dev/null || term "Abyss Power" sh -c "$(priv) $cmd"
+}
+
+# Top-right anchor. If the pointer is on the bar (menu was clicked) xmenu opens
+# at the pointer; otherwise (keyboard) pin it under the right end of the bar.
+menu_pos() {
+    if has xdotool; then
+        eval "$(xdotool getmouselocation --shell 2>/dev/null)"
+        [ "${Y:-999}" -le "$BAR_H" ] && return
+    fi
+    geo=$(xrandr --listactivemonitors 2>/dev/null | awk 'NR>1 && /\*/ {print $3; exit}')
+    [ -n "$geo" ] || geo=$(xrandr --listactivemonitors 2>/dev/null | awk 'NR==2 {print $3}')
+    # geo looks like 2560/677x1600/423+0+0
+    w=$(echo "$geo" | sed -n 's|^\([0-9]*\)/.*|\1|p')
+    ox=$(echo "$geo" | sed -n 's|.*+\([0-9]*\)+[0-9]*$|\1|p')
+    [ -n "$w" ] || return
+    printf -- '-p %dx%d' $(( ${ox:-0} + w - MENU_W - 8 )) $(( BAR_H + 2 ))
+}
+
+# ------------------------------------------------------------------------------
+# Menu tree (xmenu format: TAB-indented submenus, "Label<TAB>action").
+# Labels use Nerd Font glyphs already shipped with the ISO.
+# ------------------------------------------------------------------------------
+menu_tree() {
+    # Live ISO only: the installer goes first
+    if has void-installer && grep -q 'root=live:' /proc/cmdline 2>/dev/null; then
+        printf '  Install Abyss Linux\tinstall\n\n'
+    fi
+    cat <<'EOF'
+  Terminal	term
+  Files	files
+  Browser	browser
+󰀻  Apps…	apps
+  Run program…	run
+
+  System settings
+	󰖩  Network (nmtui)	net-tui
+	󰛳  Network connections	net-gui
+	󰀂  Network tray icon on/off	net-applet
+	󰕾  Audio mixer	audio-gui
+	󰝚  Audio devices (terminal)	audio-tui
+	󰍹  Displays (arandr)	display-gui
+	󰍺  Displays: auto-detect	display-auto
+	󰌌  Keyboard
+		󰘳  Super key: swap with Alt	kbd-swap
+		󰌓  Test keys (xev)	kbd-test
+		󰋖  Keyboard status	kbd-status
+	󰸉  Reset wallpaper	wallpaper
+  Tools
+	󰄨  System monitor	monitor
+	  System info	info
+	󰚰  Update system	update
+	󰝰  File manager (lf)	lf
+	  Text editor (vim)	vim
+	󰣀  SSH manager	ssh
+	󰌌  Keyboard shortcuts	shortcuts
+
+  Power
+	  Lock screen	lock
+	󰤄  Suspend	suspend
+	󰒲  Hibernate	hibernate
+	󰍃  Exit dwm	logout
+	󰜉  Reboot	reboot
+	  Shut down	poweroff
+EOF
+}
+
+# Flatten the tree for dmenu: "System settings › Keyboard › Test keys<TAB>kbd-test"
+menu_flat() {
+    menu_tree | awk -F'\t' '
+        { depth = 0; while (substr($0, depth + 1, 1) == "\t") depth++ }
+        {
+            n = split($0, f, "\t"); label = ""; action = ""
+            for (i = 1; i <= n; i++) if (f[i] != "") { if (label == "") label = f[i]; else action = f[i] }
+            if (label == "") next
+            gsub(/^[^ ]* +/, "", label)          # drop the glyph
+            path[depth] = label
+            if (action == "") next               # submenu header
+            out = ""
+            for (i = 0; i < depth; i++) out = out path[i] " › "
+            print out label "\t" action
+        }'
+}
+
+choose() {
+    if has xmenu; then
+        # shellcheck disable=SC2046
+        menu_tree | xmenu $(menu_pos)
+    elif has dmenu; then
+        sel=$(menu_flat | cut -f1 | dmenu_theme -p "Abyss")
+        [ -n "$sel" ] && menu_flat | awk -F'\t' -v s="$sel" '$1 == s {print $2; exit}'
+    else
+        notify "Abyss menu" "Install xmenu or dmenu"
+    fi
+}
+
+act() {
+    case "$1" in
+        install)      setsid -f abyss-installer >/dev/null 2>&1 ;;
+        term)       first "st" "alacritty" ;;
+        files)        first "thunar" "pcmanfm" "nautilus" || act lf ;;
+        lf)           if has lf; then term "Files" lf; else term "Files" sh -c 'ls -la; exec bash'; fi ;;
+        vim)          if has vim; then term "Editor" vim; else first "code"; fi ;;
+        browser)      first "firefox" "chromium" "flatpak run com.google.Chrome" ;;
+        apps)         setsid -f abyss-launcher drun ;;
+        run)          setsid -f abyss-launcher run ;;
+
+        net-tui)      has nmtui && term "Network" nmtui || notify "nmtui missing" "Install NetworkManager" ;;
+        net-gui)      first "nm-connection-editor" || act net-tui ;;
+        net-applet)   if pgrep -u "$(id -u)" -x nm-applet >/dev/null; then pkill -u "$(id -u)" -x nm-applet
+                      else first "nm-applet"; fi ;;
+        audio-gui)    first "pavucontrol" || act audio-tui ;;
+        audio-tui)    if has alsamixer; then term "Audio" alsamixer
+                      else term "Audio" sh -c 'wpctl status; echo; echo "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%+"; exec bash'; fi ;;
+        display-gui)  first "arandr" || term "Displays" sh -c 'xrandr; exec bash' ;;
+        display-auto) xrandr --auto && notify "Displays" "Outputs re-detected" ;;
+        kbd-toggle)   abyss-keyboard --toggle ;;
+        kbd-swap)     abyss-keyboard --swap-super ;;
+        kbd-test)     abyss-keyboard --test ;;
+        kbd-status)   notify "Keyboard" "$(abyss-keyboard --status 2>&1)" ;;
+        wallpaper)    [ -f "$WALLPAPER" ] && feh --no-fehbg --bg-fill "$WALLPAPER" ;;
+
+        monitor)      if has btop; then term "System monitor" btop
+                      elif has htop; then term "System monitor" htop
+                      else term "System monitor" top; fi ;;
+        info)         term "Abyss System Info" sh -c 'fastfetch 2>/dev/null; echo; df -h /; echo; printf "Press Enter to close "; read _' ;;
+        update)       p=$(priv)
+                      term "Abyss System Update" sh -c "$p xbps-install -Su && $p xbps-remove -Oo; echo; printf 'Done. Press Enter to close '; read _" ;;
+        ssh)          first "dmenu-ssh" ;;
+        shortcuts)    term "Abyss Shortcuts" abyss-shortcuts ;;
+
+        lock)         first "slock" ;;
+        suspend)      power suspend ;;
+        hibernate)    power hibernate ;;
+        logout)       confirm "Exit dwm" && pkill -u "$(id -u)" -x dwm ;;
+        reboot)       confirm "Reboot" && power reboot ;;
+        poweroff)     confirm "Shut down" && power poweroff ;;
+
+        "")           ;;
+        *)            notify "Abyss menu" "Unknown action: $1" ;;
+    esac
+}
+
+check() {
+    missing=""
+    for c in xmenu xdotool dmenu rofi lf vim mpv dunst st nmtui pavucontrol arandr xrandr feh slock loginctl notify-send setxkbmap; do
+        has "$c" || missing="$missing $c"
+    done
+    if [ -n "$missing" ]; then echo "missing:$missing"; return 1; fi
+    echo "all dependencies present"
+}
+
+case "${1:-}" in
+    --check) check ;;
+    "")      act "$(choose)" ;;
+    *)       act "$1" ;;
+esac

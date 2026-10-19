@@ -1,0 +1,35 @@
+# ~/.config/lf/lfrc - Abyss Linux file manager (Super+Alt+f, menu > Tools)
+# Enter opens: text -> $EDITOR (vim), video/audio -> mpv, images -> feh.
+
+set ifs "\n"
+set hidden false
+set icons false
+set drawbox true
+set ratios 1:2:3
+set scrolloff 4
+set previewer ~/.config/lf/preview
+set promptfmt "\033[1;35m%u@%h\033[0m \033[1;37m%d\033[0m\033[1m%f\033[0m"
+
+cmd open ${{
+    case $(file --mime-type -Lb "$f") in
+        text/*|application/json|application/javascript|application/x-shellscript|inode/x-empty)
+            ${EDITOR:-vim} "$f" ;;
+        video/*|audio/*)
+            setsid -f mpv -- $fx >/dev/null 2>&1 ;;
+        image/*)
+            setsid -f feh --scale-down --auto-zoom -- $fx >/dev/null 2>&1 ;;
+        *)
+            ${PAGER:-less} "$f" ;;
+    esac
+}}
+
+cmd mkdir %mkdir -p -- "$1"
+cmd touch %touch -- "$1"
+
+map <enter> open
+map . set hidden!
+map gh cd ~
+map gd cd ~/Downloads
+map <delete> delete
+map a push :touch<space>
+map A push :mkdir<space>

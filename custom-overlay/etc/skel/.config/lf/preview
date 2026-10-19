@@ -1,0 +1,20 @@
+#!/bin/sh
+# ~/.config/lf/preview <file> <width> <height> - lf preview pane
+# text: bat (or head), images: chafa, archives: their listing, anything else: file(1)
+
+f=$1 w=${2:-80} h=${3:-40}
+
+case $(file --mime-type -Lb "$f") in
+    image/*)
+        command -v chafa >/dev/null 2>&1 && exec chafa -f symbols -s "${w}x${h}" "$f" ;;
+    text/*|application/json|application/javascript|application/x-shellscript|inode/x-empty)
+        command -v bat >/dev/null 2>&1 &&
+            exec bat --color=always --style=plain --paging=never --line-range=":$h" "$f"
+        exec head -n "$h" "$f" ;;
+    application/zip)
+        command -v unzip >/dev/null 2>&1 && exec unzip -l "$f" ;;
+    application/x-tar|application/gzip|application/x-xz|application/x-bzip2|application/zstd)
+        exec tar tf "$f" ;;
+esac
+
+file -Lb "$f" | fold -w "$w"

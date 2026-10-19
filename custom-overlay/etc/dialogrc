@@ -1,0 +1,52 @@
+# /etc/dialogrc - Abyss Linux dark theme for dialog(1) (void-installer)
+# dialog reads $DIALOGRC, then ~/.dialogrc, then this file.
+# Only the 8 basic colours are used so it stays readable in st, alacritty and
+# the Linux console alike: light text on black, purple (MAGENTA) highlight.
+# abyss-installer maps MAGENTA to the Abyss accent #a855f7 inside st.
+# An unknown key makes every dialog call fail, so keep to dialog 1.3 names.
+
+use_shadow = OFF
+use_colors = ON
+
+screen_color = (WHITE,BLACK,OFF)
+shadow_color = (BLACK,BLACK,OFF)
+dialog_color = (WHITE,BLACK,OFF)
+title_color = (MAGENTA,BLACK,ON)
+border_color = (MAGENTA,BLACK,ON)
+border2_color = (MAGENTA,BLACK,ON)
+
+button_active_color = (BLACK,MAGENTA,ON)
+button_inactive_color = (WHITE,BLACK,OFF)
+button_key_active_color = (BLACK,MAGENTA,ON)
+button_key_inactive_color = (MAGENTA,BLACK,ON)
+button_label_active_color = (BLACK,MAGENTA,ON)
+button_label_inactive_color = (WHITE,BLACK,ON)
+
+inputbox_color = (WHITE,BLACK,OFF)
+inputbox_border_color = (MAGENTA,BLACK,OFF)
+inputbox_border2_color = (MAGENTA,BLACK,OFF)
+searchbox_color = (WHITE,BLACK,OFF)
+searchbox_title_color = (MAGENTA,BLACK,ON)
+searchbox_border_color = (MAGENTA,BLACK,OFF)
+searchbox_border2_color = (MAGENTA,BLACK,OFF)
+position_indicator_color = (MAGENTA,BLACK,ON)
+
+menubox_color = (WHITE,BLACK,OFF)
+menubox_border_color = (MAGENTA,BLACK,OFF)
+menubox_border2_color = (MAGENTA,BLACK,OFF)
+item_color = (WHITE,BLACK,OFF)
+item_selected_color = (BLACK,MAGENTA,ON)
+tag_color = (WHITE,BLACK,ON)
+tag_selected_color = (BLACK,MAGENTA,ON)
+tag_key_color = (MAGENTA,BLACK,ON)
+tag_key_selected_color = (BLACK,MAGENTA,ON)
+check_color = (WHITE,BLACK,OFF)
+check_selected_color = (BLACK,MAGENTA,ON)
+uarrow_color = (MAGENTA,BLACK,ON)
+darrow_color = (MAGENTA,BLACK,ON)
+itemhelp_color = (WHITE,BLACK,OFF)
+
+form_active_text_color = (BLACK,MAGENTA,ON)
+form_text_color = (WHITE,BLACK,ON)
+form_item_readonly_color = (WHITE,BLACK,OFF)
+gauge_color = (MAGENTA,BLACK,ON)

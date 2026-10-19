@@ -1,0 +1,25 @@
+# Build outputs
+*.iso
+*.o
+/void-mklive/xbps-cachedir-*/
+
+# suckless build products (config.h is generated from config.def.h)
+/dwm/dwm
+/dwm/config.h
+/st/st
+/st/config.h
+/dmenu/dmenu
+/dmenu/stest
+/dmenu/config.h
+/slock/slock
+/slock/config.h
+/tabbed/tabbed
+/tabbed/xembed
+/tabbed/config.h
+/wmname/wmname
+
+# never commit signing keys
+*.pem
+!keys/abyss-pmr.pub.pem
+
+.DS_Store

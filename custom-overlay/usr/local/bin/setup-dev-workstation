@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# setup-dev-workstation - First-Boot Developer, AI & Flatpak Provisioner
+# Finalizes nonfree repositories, AI CLI agents, Google Antigravity CLI (agy),
+# Flathub applications (Chrome & AnyDesk), and virtualization/container groups
+# ==============================================================================
+
+set -euo pipefail
+
+echo "=================================================================="
+echo "  Void Linux Suckless Developer Workstation - Post-Boot Setup"
+echo "=================================================================="
+
+# 1. Enable void-repo-nonfree
+echo "[1/5] Enabling void-repo-nonfree..."
+sudo xbps-install -Sy void-repo-nonfree
+sudo xbps-install -S
+
+# 2. Globally install AI coding agents via npm
+echo "[2/5] Installing AI coding agents (@anthropic-ai/claude-code, @openai/codex)..."
+sudo npm install -g @anthropic-ai/claude-code @openai/codex
+
+# 3. Install Google Antigravity CLI (agy)
+echo "[3/5] Installing Google Antigravity CLI (agy)..."
+curl -fsSL https://antigravity.google/cli/install.sh | bash
+
+# 4. Configure Flathub & install Google Chrome + AnyDesk
+echo "[4/5] Adding Flathub repository and installing Google Chrome & AnyDesk..."
+sudo flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+sudo flatpak install -y flathub com.google.Chrome com.anydesk.Anydesk
+
+# 5. Add active user to virtualization, container, and hardware groups
+TARGET_USER="${SUDO_USER:-$USER}"
+echo "[5/5] Adding user '${TARGET_USER}' to wheel,audio,video,docker,libvirt,kvm groups..."
+for grp in wheel audio video docker libvirt kvm; do
+    getent group "$grp" >/dev/null 2>&1 || sudo groupadd -r "$grp"
+done
+sudo usermod -aG wheel,audio,video,docker,libvirt,kvm "$TARGET_USER"
+
+echo "=================================================================="
+echo "  Provisioning complete! Log out and back in for group changes."
+echo "=================================================================="

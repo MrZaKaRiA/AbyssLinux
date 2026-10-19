@@ -1,0 +1,96 @@
+/* ~/.config/rofi/config.rasi - Abyss Linux launcher (abyss-launcher, Super+Alt+r) */
+
+configuration {
+    modi:                "drun,run,window";
+    show-icons:          false;
+    display-drun:        "Apps";
+    display-run:         "Run";
+    display-window:      "Windows";
+    drun-display-format: "{name}";
+    font:                "JetBrainsMono Nerd Font 11";
+    terminal:            "st";
+}
+
+/* Theme: sizes in em so they follow the font (and Xft.dpi on HiDPI screens) */
+* {
+    abyss-bg:      #0d0b18;
+    abyss-bg-alt:  #1a1428;
+    abyss-fg:      #f3e8ff;
+    abyss-dim:     #a78bfa;
+    abyss-accent:  #a855f7;
+    abyss-sel-fg:  #090514;
+
+    background-color: transparent;
+    text-color:       @abyss-fg;
+}
+
+window {
+    width:            40%;
+    background-color: @abyss-bg;
+    border:           2px;
+    border-color:     @abyss-accent;
+    border-radius:    0.6em;
+    padding:          0.8em;
+}
+
+mainbox {
+    children: [ inputbar, listview ];
+    spacing:  0.6em;
+}
+
+inputbar {
+    children:         [ prompt, entry ];
+    background-color: @abyss-bg-alt;
+    border-radius:    0.4em;
+    padding:          0.5em 0.8em;
+    spacing:          0.6em;
+}
+
+prompt {
+    text-color: @abyss-accent;
+}
+
+/* rofi's built-in theme colours these widgets itself, so set them explicitly */
+entry {
+    placeholder:       "Type to search";
+    placeholder-color: @abyss-dim;
+    text-color:        @abyss-fg;
+    cursor-color:      @abyss-accent;
+}
+
+textbox-prompt-colon, case-indicator, num-filtered-rows, num-rows, textbox-num-sep {
+    text-color: @abyss-dim;
+}
+
+message, textbox {
+    background-color: @abyss-bg-alt;
+    text-color:       @abyss-fg;
+}
+
+listview {
+    lines:        10;
+    columns:      1;
+    fixed-height: false;
+    scrollbar:    false;
+    spacing:      0.15em;
+}
+
+element {
+    padding:       0.4em 0.8em;
+    border-radius: 0.4em;
+}
+
+element normal.normal, element alternate.normal, element normal.active, element alternate.active {
+    background-color: transparent;
+    text-color:       @abyss-fg;
+}
+
+element selected.normal, element selected.active {
+    background-color: @abyss-accent;
+    text-color:       @abyss-sel-fg;
+}
+
+element-text, element-icon {
+    background-color: inherit;
+    text-color:       inherit;
+}

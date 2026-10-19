@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# dwm-statusbar - minimal status text (status2d colours)
+# Shows only CPU, memory and the clock, plus "offline" when there is no network.
+# The last block is the Abyss menu button: clicking the status text
+# (or Super+Escape) runs abyss-control-center.
+# ==============================================================================
+
+set -u
+
+LABEL="^c#a78bfa^"      # dim purple labels
+VALUE="^c#f3e8ff^"      # light values
+WARN="^c#fb7185^"
+MENU="^b#a855f7^^c#090514^ Menu ^d^"
+
+online() {
+    ip route show default 2>/dev/null | grep -q . && return 0
+    for dev in /sys/class/net/*; do
+        [[ "${dev##*/}" == lo ]] && continue
+        [[ -r "$dev/operstate" && "$(<"$dev/operstate")" == up ]] && return 0
+    done
+    return 1
+}
+
+read_cpu_stat() {
+    awk '/^cpu / {
+        idle = $5 + $6;
+        total = $2 + $3 + $4 + $5 + $6 + $7 + $8 + $9;
+        print total, idle;
+        exit
+    }' /proc/stat 2>/dev/null
+}
+
+get_ram_usage() {
+    free -h 2>/dev/null | awk '/^Mem:/ {
+        gsub(/i/, "", $3);
+        gsub(/i/, "", $2);
+        printf "%s/%s", $3, $2
+    }'
+}
+
+read -r PREV_CPU_TOTAL PREV_CPU_IDLE <<< "$(read_cpu_stat)"
+PREV_CPU_TOTAL=${PREV_CPU_TOTAL:-0}
+PREV_CPU_IDLE=${PREV_CPU_IDLE:-0}
+
+sleep 1
+
+while true; do
+    read -r CUR_CPU_TOTAL CUR_CPU_IDLE <<< "$(read_cpu_stat)"
+    CUR_CPU_TOTAL=${CUR_CPU_TOTAL:-0}
+    CUR_CPU_IDLE=${CUR_CPU_IDLE:-0}
+    DIFF_TOTAL=$(( CUR_CPU_TOTAL - PREV_CPU_TOTAL ))
+    DIFF_IDLE=$(( CUR_CPU_IDLE - PREV_CPU_IDLE ))
+    if (( DIFF_TOTAL > 0 )); then
+        CPU_PCT=$(( (100 * (DIFF_TOTAL - DIFF_IDLE)) / DIFF_TOTAL ))
+    else
+        CPU_PCT=0
+    fi
+    PREV_CPU_TOTAL=$CUR_CPU_TOTAL
+    PREV_CPU_IDLE=$CUR_CPU_IDLE
+
+    NET=""
+    online || NET="${WARN}offline   "
+
+    STATUS="${NET}${LABEL}CPU ${VALUE}${CPU_PCT}%   ${LABEL}RAM ${VALUE}$(get_ram_usage)   ${VALUE}$(date '+%a %d %b  %H:%M')  ${MENU}"
+
+    xsetroot -name "$STATUS" 2>/dev/null || true
+    sleep 2
+done

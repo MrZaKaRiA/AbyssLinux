@@ -1,0 +1,102 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# abyss-shortcuts - Abyss Linux Onboarding & Shortcuts Cheatsheet
+# ==============================================================================
+
+# Cosmic Abyss Colors
+CYAN="\033[1;38;5;51m"
+MAGENTA="\033[1;38;5;197m"
+PURPLE="\033[1;38;5;141m"
+LIME="\033[1;38;5;191m"
+WHITE="\033[1;38;5;15m"
+GRAY="\033[38;5;245m"
+BOLD="\033[1m"
+RESET="\033[0m"
+MENU_ICON="Menu"
+
+clear
+cat << "LOGO"
+[1;38;5;141m         .-----------------.
+[1;38;5;135m      .-'   .-----------.   '-.
+[1;38;5;129m    .'   .-'    _____    '-.   '.
+[1;38;5;99m   /   .'     /       \     '.   \      [1;38;5;197m    _    ____  __   ______ ____ 
+[1;38;5;93m  /   /      /   .-.   \      \   \     [1;38;5;198m   / \  | __ ) \ \ / / ___/ ___|
+[1;38;5;63m |   |      |   /   \   |      |   |    [1;38;5;171m  / _ \ |  _ \  \ V /\___ \___ \
+[1;38;5;57m |   |      |  |  *  |  |      |   |    [1;38;5;141m / ___ \| |_) |  | |  ___) |__) |
+[1;38;5;63m |   |      |   \___/   |      |   |    [1;38;5;105m/_/   \_\____/   |_| |____/____/ 
+[1;38;5;93m  \   \      \         /      /   /     [1;38;5;51m  L   I   N   U   X   E D I T I O N
+[1;38;5;99m   \   '.     \_______/     .'   /
+[1;38;5;129m    '.   '-.             .-'   .'       [38;5;250mSuckless Developer Workstation (Void Base)
+[1;38;5;135m      '-.   '-----------'   .-'
+[1;38;5;141m         '-----------------'[0m
+LOGO
+
+echo ""
+echo -e "${PURPLE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
+echo -e "${WHITE}  🚀 WELCOME TO ABYSS LINUX — KEYBOARD CHEATSHEET${RESET}"
+echo -e "${PURPLE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
+echo ""
+
+# Which physical key is Super right now (Left Alt inside VMs, see abyss-keyboard)
+SUPER_NOTE="Win/Cmd key"
+if abyss-keyboard --status 2>/dev/null | grep -q 'Left Alt'; then
+    SUPER_NOTE="Left Alt (swapped - change in menu > System settings > Keyboard)"
+fi
+
+echo -e "  ${MAGENTA}● ABYSS MENU:${RESET}"
+echo -e "    ${LIME}Click ${MENU_ICON} (top-right)${RESET}  Apps, System settings, Tools, Power - all in one menu"
+echo -e "    ${LIME}[Super] + Escape${RESET}       Open the same menu from the keyboard"
+echo -e "    ${GRAY}Super is currently: ${WHITE}${SUPER_NOTE}${RESET}"
+echo ""
+
+echo -e "  ${MAGENTA}● APPLICATIONS:${RESET}"
+echo -e "    ${LIME}[Super] + Return${RESET}       Terminal (${CYAN}st${RESET})       ${LIME}[Super] + Alt + Return${RESET}  alacritty"
+echo -e "    ${LIME}[Super] + p${RESET}            Run program (${CYAN}dmenu${RESET})  ${LIME}[Super] + \`${RESET}  Scratchpad terminal"
+echo -e "    ${LIME}[Super] + b${RESET}            Web browser          ${LIME}[Super] + c${RESET}  VS Code"
+echo -e "    ${LIME}[Super] + s${RESET}            SSH manager          ${LIME}[Super] + v${RESET}  virt-manager"
+echo -e "    ${LIME}[Super] + Shift + l${RESET}    Lock screen          ${LIME}[Super] + F1${RESET} This cheatsheet"
+echo ""
+
+echo -e "  ${MAGENTA}● SYSTEM (sxhkd):${RESET}"
+echo -e "    ${LIME}[Super] + Alt + n / a / d${RESET}  Network / Audio / Displays"
+echo -e "    ${LIME}[Super] + Alt + e / m / u${RESET}  Files / System monitor / Update"
+echo -e "    ${LIME}[Super] + Alt + l${RESET}          Lock     ${LIME}[Super] + Alt + Escape${RESET}  Shut down"
+echo -e "    ${LIME}[Super] + Alt + r / w${RESET}      App launcher / window switcher (${CYAN}rofi${RESET})"
+echo -e "    ${LIME}[Super] + Alt + f / v${RESET}      File manager (${CYAN}lf${RESET}) / Editor (${CYAN}vim${RESET})"
+echo -e "    ${LIME}[Super] + Alt + c / h${RESET}      Close notifications / show last one (${CYAN}dunst${RESET})"
+echo -e "    ${LIME}Volume / Mute keys${RESET}         PipeWire volume (wpctl)"
+echo -e "    ${GRAY}In lf, Enter opens videos/music in ${WHITE}mpv${GRAY}, images in feh, text in vim${RESET}"
+echo ""
+
+echo -e "  ${MAGENTA}● KEYBOARD:${RESET}"
+echo -e "    ${LIME}Alt + Shift${RESET}            Switch English / Arabic"
+echo -e "    ${LIME}Caps Lock${RESET}              Escape"
+echo -e "    ${LIME}[Super] + Alt + k${RESET}      Move Super to Left Alt and back (for VMs)"
+echo ""
+
+echo -e "  ${MAGENTA}● WINDOW MANAGEMENT (dwm):${RESET}"
+echo -e "    ${LIME}[Super] + j / k${RESET}        Focus next / previous window"
+echo -e "    ${LIME}[Super] + h / l${RESET}        Shrink / grow master area"
+echo -e "    ${LIME}[Super] + i / d${RESET}        More / fewer windows in master"
+echo -e "    ${LIME}[Super] + Shift + Return${RESET} Promote window to master"
+echo -e "    ${LIME}[Super] + Shift + c${RESET}    Close window"
+echo -e "    ${LIME}[Super] + t / f / m${RESET}    Layout: tile / float / monocle  (${LIME}Space${RESET}: previous)"
+echo -e "    ${LIME}[Super] + Shift + Space${RESET} Toggle floating for the window"
+echo -e "    ${LIME}[Super] + 1..9 / 0${RESET}     View tag / all tags  (${LIME}+Shift${RESET}: move window)"
+echo -e "    ${LIME}[Super] + Tab${RESET}          Previous tag         ${LIME}[Super] + Shift + b${RESET}  Toggle bar"
+echo -e "    ${LIME}[Super] + Alt + = / -${RESET}  Gaps bigger / smaller (${LIME}Alt + 0${RESET}: toggle)"
+echo -e "    ${LIME}[Super] + Shift + q${RESET}    Quit dwm"
+echo ""
+
+echo -e "  ${MAGENTA}● PACKAGES (XBPS via doas):${RESET}"
+echo -e "    ${LIME}u${RESET}                      Update system     (${GRAY}xbps-install -Su${RESET})"
+echo -e "    ${LIME}i <pkg>${RESET}                Install           (${GRAY}xbps-install -S${RESET})"
+echo -e "    ${LIME}q <term>${RESET}               Search            (${GRAY}xbps-query -Rs${RESET})"
+echo -e "    ${LIME}r <pkg>${RESET}                Remove            (${GRAY}xbps-remove -R${RESET})"
+echo -e "    ${LIME}pkg-ui${RESET}                 Fuzzy package explorer (${CYAN}fzf${RESET})"
+echo -e "${PURPLE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
+echo -e "  ${GRAY}Press ${WHITE}[ENTER]${GRAY} to start terminal session, or ${WHITE}[q]${GRAY} to exit.${RESET}"
+read -r -n 1 key
+if [ "$key" != "q" ] && [ "$key" != "Q" ]; then
+    exec bash
+fi
