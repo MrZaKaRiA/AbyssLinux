@@ -63,11 +63,11 @@ PKGS_INSTALLER="dialog parted gdisk cryptsetup lvm2 mdadm xtools-minimal xmirror
 PKGS_INPUT="xf86-input-libinput xf86-input-evdev xorg-input-drivers"
 # Abyss menu (xmenu + xdotool), hotkeys, keyboard tools, doas, basic apps
 # (mpv player, vim editor, lf file manager + previews, rofi launcher, dunst)
-PKGS_ABYSS="xmenu xdotool sxhkd setxkbmap xrdb xmodmap xev opendoas mpv vim lf rofi dunst file chafa"
+PKGS_ABYSS="xmenu xdotool sxhkd setxkbmap xrdb xmodmap xev opendoas mpv vim lf rofi dunst file chafa tumbler xdg-user-dirs"
 # Abyss builds of the suckless tools, from the signed Abyss PMR
 # (https://github.com/MrZaKaRiA/AbyssLinuxPMR); they replace Void's st/dwm/dmenu
 ABYSS_PMR="${ABYSS_PMR:-https://mrzakaria.github.io/AbyssLinuxPMR/current}"
-PKGS_SUCKLESS="abyss-dwm abyss-st abyss-dmenu abyss-slock abyss-tabbed abyss-wmname"
+PKGS_SUCKLESS="abyss-dwm abyss-st abyss-dmenu abyss-slock abyss-tabbed abyss-wmname abyss-theme"
 
 # Silent boot (later loglevel= overrides mklive's built-in loglevel=4)
 ABYSS_BOOT_CMDLINE="quiet loglevel=3 rd.udev.log_level=3 udev.log_level=3"

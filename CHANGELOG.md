@@ -2,6 +2,9 @@
 
 ## Updates since v27.0 (delivered through the Abyss PMR: `sudo xbps-install -Su`)
 
+* **abyss-theme 1.0_1 (new):** Thunar and other GTK apps are no longer white. The "Abyss" GTK 3 theme (Adwaita dark with the Abyss palette) and the "Abyss" icon theme (Papirus-Dark with violet folders) are now the system-wide default.
+* **abyss-dwm 6.8_3:** move windows from the keyboard. `Super+Shift+j/k` (or `Shift+↓/↑`) moves the window down/up the stack (movestack), `Super+←/→` switches to the previous/next desktop, and `Super+Shift+←/→` carries the window there. The arrow keys also avoid macOS's `Cmd+Shift+3/4/5` screenshot shortcuts. abyss-dwm now pulls in abyss-theme.
+* New ISOs: `tumbler` (thumbnails) and `xdg-user-dirs` (Desktop, Documents, Downloads… with their own icons), plus new keys in the `Super+F1` cheatsheet.
 * **abyss-dwm 6.8_2:** `Super+B` (Cmd+B on a Mac) opens the browser through the Abyss menu. If no browser is installed, it now shows a notification telling you how to install one, instead of silently doing nothing (the ISO ships without a browser).
 * Abyss menu, future ISOs: the "No web browser installed" notification now suggests `sudo xbps-install firefox`.
 

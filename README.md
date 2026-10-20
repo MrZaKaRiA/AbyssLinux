@@ -122,6 +122,7 @@ The installer is Void's `void-installer` with Abyss changes: one-step automatic 
 * **HiDPI out of the box.** `~/.xinitrc` sets `Xft.dpi` to 192 (2×) in Apple Virtualization guests and on screens at least 1700 px tall, and to 144 (1.5×) from 1300 px. dwm, st, dmenu, xmenu, rofi and dunst all scale with it. To pin a value: `echo 144 > ~/.config/abyss/dpi`.
 * **Keyboard:** `us` + `ara` layouts (Alt+Shift switches), Caps Lock is Escape, and `Super+Alt+k` swaps Super onto Left Alt for VMs that capture the Command key.
 * **Notifications:** dunst, dark with a purple frame, placed under the bar.
+* **Dark GTK apps:** Thunar and other GTK 3 apps use the Abyss theme: a dark Adwaita with purple selection, and Papirus-Dark icons with violet folders. Desktop, Documents, Downloads, Music, Pictures and Videos each get their own folder icon.
 
 | Menu | Launcher (rofi) | Files (lf) |
 |---|---|---|
@@ -146,13 +147,16 @@ The installer is Void's `void-installer` with Abyss changes: one-step automatic 
 | `Super+b` / `Super+c` / `Super+v` | Browser / VS Code / virt-manager |
 | `Super+s` | SSH manager (dmenu-ssh) |
 | `Super+Shift+l` | Lock screen (slock) |
-| `Super+j` / `Super+k` | Focus next / previous window |
+| `Super+j` / `Super+k` (or `Super+↓` / `Super+↑`) | Focus next / previous window |
+| `Super+Shift+j` / `Super+Shift+k` (or `Super+Shift+↓` / `↑`) | **Move the window** down / up the stack |
 | `Super+h` / `Super+l` | Shrink / grow master area |
 | `Super+i` / `Super+d` | More / fewer windows in master |
 | `Super+Shift+Return` | Promote window to master |
 | `Super+Shift+c` | Close window |
 | `Super+t` / `Super+f` / `Super+m` | Tile / floating / monocle layout |
 | `Super+Space` / `Super+Shift+Space` | Previous layout / toggle floating |
+| `Super+←` / `Super+→` | Previous / next desktop (tag) |
+| `Super+Shift+←` / `Super+Shift+→` | **Move the window** to the previous / next desktop and follow it |
 | `Super+1…9` | View tag |
 | `Super+Shift+1…9` | Move window to tag |
 | `Super+Ctrl+1…9` | Toggle tag view |
@@ -197,12 +201,13 @@ The installer is Void's `void-installer` with Abyss changes: one-step automatic 
 
 | Package | Upstream | Patches and changes | Purpose |
 |---|---|---|---|
-| `abyss-dwm` 6.8_2 | dwm 6.8 + git `bca7cf2` | [systray](https://dwm.suckless.org/patches/systray/), [status2d](https://dwm.suckless.org/patches/status2d/), [vanitygaps](https://dwm.suckless.org/patches/vanitygaps/), [scratchpad](https://dwm.suckless.org/patches/scratchpad/), [attachaside](https://dwm.suckless.org/patches/attachaside/), [autostart](https://dwm.suckless.org/patches/autostart/); Abyss theme; status click → menu | Tiling window manager |
+| `abyss-dwm` 6.8_3 | dwm 6.8 + git `bca7cf2` | [systray](https://dwm.suckless.org/patches/systray/), [status2d](https://dwm.suckless.org/patches/status2d/), [vanitygaps](https://dwm.suckless.org/patches/vanitygaps/), [scratchpad](https://dwm.suckless.org/patches/scratchpad/), [attachaside](https://dwm.suckless.org/patches/attachaside/), [autostart](https://dwm.suckless.org/patches/autostart/), [movestack](https://dwm.suckless.org/patches/movestack/), [shiftview](https://dwm.suckless.org/patches/shiftview/) (+ shifttag); Abyss theme; status click → menu | Tiling window manager |
 | `abyss-st` 0.9.3_1 | st 0.9.3 + git `fdaadd5` | [clipboard](https://st.suckless.org/patches/clipboard/); Abyss 16-colour palette; font in points (`size=11`) for HiDPI | Terminal |
 | `abyss-dmenu` 5.4_1 | dmenu 5.4 + git `8627d0c` | [center](https://tools.suckless.org/dmenu/patches/center/) `-c`, [border](https://tools.suckless.org/dmenu/patches/border/) `-bw`, [line-height](https://tools.suckless.org/dmenu/patches/line-height/) `-h`, [password](https://tools.suckless.org/dmenu/patches/password/) `-P`, case-insensitive by default; Abyss colours | Menu / launcher |
 | `abyss-slock` 1.7_1 | slock 1.7 + git `65cb721` | config: privilege-drop group, colours | Screen locker |
 | `abyss-tabbed` 0.9_1 | tabbed 0.9 + git `e65146d` | config: font, colours | XEmbed tabs |
 | `abyss-wmname` 0.1_1 | wmname 0.1 + git `1114a83` | none | `wmname LG3D` for Java GUI apps |
+| `abyss-theme` 1.0_1 | Abyss | GTK 3 theme "Abyss" (Adwaita dark + Abyss palette), icon theme "Abyss" (Papirus-Dark, violet folders) | Dark Thunar and GTK apps |
 
 The patched source trees are in this repository (`dwm/`, `st/`, `dmenu/`, `slock/`, `tabbed/`, `wmname/`). The PMR holds the same changes as patch files against the official release tarballs.
 

@@ -3,7 +3,7 @@
 Everything below lives in `custom-overlay/` (copied into the ISO by `mklive -I`)
 or `builder/` (build-time hooks). The suckless tools are **not** in the overlay: the
 ISO installs `abyss-dwm`, `abyss-st`, `abyss-dmenu`, `abyss-slock`, `abyss-tabbed` and
-`abyss-wmname` from the signed [Abyss PMR](https://github.com/MrZaKaRiA/AbyssLinuxPMR)
+`abyss-wmname` and the GTK/icon theme `abyss-theme` from the signed [Abyss PMR](https://github.com/MrZaKaRiA/AbyssLinuxPMR)
 (see "Suckless packages" below).
 The builder deletes the old ISO before copying the new one, so a VM that has it open keeps the old file.
 
@@ -25,7 +25,7 @@ The builder deletes the old ISO before copying the new one, so a VM that has it 
 | `/etc/doas.conf` | **0400 root:root** | `permit persist keepenv :wheel` + passwordless reboot/poweroff/zzz/ZZZ. |
 | `/etc/skel/.bash_profile` | 0644 | startx on tty1 only (no DISPLAY/WAYLAND/SSH, no running Xorg); X output → `~/.local/share/xorg/startx.log`. |
 | `/etc/skel/.bashrc` | 0644 | Appended: `set -o vi`, aliases `u i q r` (doas, falls back to sudo). |
-| `/etc/skel/.xinitrc` | 0755 | Adds xrdb, HiDPI `Xft.dpi` (192 from 1700 px screen height, 144 from 1300; override in `~/.config/abyss/dpi`), abyss-keyboard, sxhkd, welcome notification; nm-applet now opt-in from the menu. |
+| `/etc/skel/.xinitrc` | 0755 | Adds xrdb, HiDPI `Xft.dpi` (192 from 1700 px screen height, 144 from 1300; override in `~/.config/abyss/dpi`), abyss-keyboard, `xdg-user-dirs-update` (Desktop, Documents, Downloads… with their own folder icons), sxhkd, welcome notification; nm-applet now opt-in from the menu. |
 | `/etc/skel/.Xresources` | 0644 | xmenu theme (Abyss purple). |
 | `/etc/skel/.config/sxhkd/sxhkdrc` | 0644 | Super+Alt+letter and media keys only — never keys dwm grabs. r/w rofi apps/windows, f lf, v vim, c/h dunst close/history. |
 | `/usr/local/bin/abyss-launcher` | 0755 | rofi launcher (`drun`, `run`, `window`) with `-dpi` from Xft.dpi; dmenu fallback. Menu > Apps / Run program. |

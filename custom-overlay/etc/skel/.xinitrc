@@ -47,6 +47,10 @@ unset abyss_dpi abyss_h abyss_apple_vm
 # Keyboard: us,ara layouts, Alt+Shift toggle, Caps=Escape, Super fix inside VMs
 /usr/local/bin/abyss-keyboard
 
+# Desktop, Documents, Downloads, Music, Pictures, Videos... (their own folder
+# icons in Thunar and the sidebar)
+command -v xdg-user-dirs-update >/dev/null 2>&1 && xdg-user-dirs-update
+
 # Start notification daemon, PipeWire audio, global hotkeys, and statusbar.
 # The NetworkManager tray icon is opt-in: Abyss menu > System settings.
 if command -v pipewire >/dev/null 2>&1 && ! pgrep -x pipewire >/dev/null 2>&1; then

@@ -216,6 +216,7 @@ static void maprequest(XEvent *e);
 static void monocle(Monitor *m);
 static void motionnotify(XEvent *e);
 static void movemouse(const Arg *arg);
+static void movestack(const Arg *arg);
 static Client *nexttiled(Client *c);
 static void pop(Client *c);
 static void propertynotify(XEvent *e);
@@ -246,6 +247,8 @@ static void showhide(Client *c);
 static void spawn(const Arg *arg);
 static int status2dtextlength(char *stext);
 static Monitor *systraytomon(Monitor *m);
+static void shifttag(const Arg *arg);
+static void shiftview(const Arg *arg);
 static void tag(const Arg *arg);
 static void tagmon(const Arg *arg);
 static void tile(Monitor *m);
@@ -1580,6 +1583,50 @@ nexttiled(Client *c)
 	return c;
 }
 
+
+/* movestack patch: swap the selected tiled window with the next/previous one */
+void
+movestack(const Arg *arg)
+{
+	Client *c = NULL, *p = NULL, *pc = NULL, *i;
+
+	if (!selmon->sel || selmon->sel->isfloating)
+		return;
+	if (arg->i > 0) {
+		for (c = selmon->sel->next; c && (!ISVISIBLE(c) || c->isfloating); c = c->next);
+		if (!c)
+			for (c = selmon->clients; c && (!ISVISIBLE(c) || c->isfloating); c = c->next);
+	} else {
+		for (i = selmon->clients; i != selmon->sel; i = i->next)
+			if (ISVISIBLE(i) && !i->isfloating)
+				c = i;
+		if (!c)
+			for (; i; i = i->next)
+				if (ISVISIBLE(i) && !i->isfloating)
+					c = i;
+	}
+	for (i = selmon->clients; i && (!p || !pc); i = i->next) {
+		if (i->next == selmon->sel)
+			p = i;
+		if (i->next == c)
+			pc = i;
+	}
+	if (c && c != selmon->sel) {
+		Client *temp = selmon->sel->next == c ? selmon->sel : selmon->sel->next;
+		selmon->sel->next = c->next == selmon->sel ? c : c->next;
+		c->next = temp;
+		if (p && p != c)
+			p->next = c;
+		if (pc && pc != selmon->sel)
+			pc->next = selmon->sel;
+		if (selmon->sel == selmon->clients)
+			selmon->clients = c;
+		else if (c == selmon->clients)
+			selmon->clients = selmon->sel;
+		arrange(selmon);
+	}
+}
+
 void
 pop(Client *c)
 {
@@ -2161,6 +2208,35 @@ spawn(const Arg *arg)
 		execvp(((char **)arg->v)[0], (char **)arg->v);
 		die("dwm: execvp '%s' failed:", ((char **)arg->v)[0]);
 	}
+}
+
+/* shiftview patch: rotate the visible tags left/right */
+static unsigned int
+shifttags(unsigned int t, int n)
+{
+	if (n > 0)
+		return ((t << n) | (t >> (LENGTH(tags) - n))) & TAGMASK;
+	return ((t >> -n) | (t << (LENGTH(tags) + n))) & TAGMASK;
+}
+
+void
+shiftview(const Arg *arg)
+{
+	Arg a = { .ui = shifttags(selmon->tagset[selmon->seltags], arg->i) };
+	view(&a);
+}
+
+/* move the selected window to the previous/next tag and follow it */
+void
+shifttag(const Arg *arg)
+{
+	Arg a;
+
+	if (!selmon->sel)
+		return;
+	a.ui = shifttags(selmon->tagset[selmon->seltags], arg->i);
+	tag(&a);
+	view(&a);
 }
 
 void

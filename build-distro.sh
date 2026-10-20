@@ -32,10 +32,10 @@ PKGS_SSH_TRANSFER="openssh fuse-sshfs rsync filezilla thunar thunar-volman gvfs 
 PKGS_BROWSERS_DEV="firefox chromium vscode nodejs python3 python3-pip go rust gcc clang make cmake pkg-config"
 PKGS_CONTAINERS_VM_AI="docker docker-compose docker-buildx qemu libvirt virt-manager bridge-utils ollama flatpak"
 PKGS_ARTCRAFT="gimp inkscape krita blender darktable"
-PKGS_ABYSS="xmenu xdotool sxhkd setxkbmap xrdb xmodmap xev opendoas mpv vim lf rofi dunst file chafa"
+PKGS_ABYSS="xmenu xdotool sxhkd setxkbmap xrdb xmodmap xev opendoas mpv vim lf rofi dunst file chafa tumbler xdg-user-dirs"
 # Abyss builds of the suckless tools from the signed Abyss PMR
 ABYSS_PMR="${ABYSS_PMR:-https://mrzakaria.github.io/AbyssLinuxPMR/current}"
-PKGS_SUCKLESS="abyss-dwm abyss-st abyss-dmenu abyss-slock abyss-tabbed abyss-wmname"
+PKGS_SUCKLESS="abyss-dwm abyss-st abyss-dmenu abyss-slock abyss-tabbed abyss-wmname abyss-theme"
 
 ALL_PACKAGES="${PKGS_BASE_X11} ${PKGS_NET_AUDIO} ${PKGS_TERM_CLI} ${PKGS_SSH_TRANSFER} ${PKGS_BROWSERS_DEV} ${PKGS_CONTAINERS_VM_AI} ${PKGS_ARTCRAFT} ${PKGS_ABYSS} ${PKGS_SUCKLESS}"
 ENABLED_SERVICES="dbus elogind polkit NetworkManager sshd docker libvirtd virtlogd ollama"
