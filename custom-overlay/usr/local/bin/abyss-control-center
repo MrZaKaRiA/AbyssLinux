@@ -177,7 +177,11 @@ act() {
         files)        first "thunar" "pcmanfm" "nautilus" || act lf ;;
         lf)           if has lf; then term "Files" lf; else term "Files" sh -c 'ls -la; exec bash'; fi ;;
         vim)          if has vim; then term "Editor" vim; else first "code"; fi ;;
-        browser)      first "firefox" "chromium" "flatpak run com.google.Chrome" ;;
+        browser)      if has firefox || has chromium || has flatpak; then
+                          first "firefox" "chromium" "flatpak run com.google.Chrome"
+                      else
+                          notify "No web browser installed" "Install one in a terminal: sudo xbps-install firefox"
+                      fi ;;
         apps)         setsid -f abyss-launcher drun ;;
         run)          setsid -f abyss-launcher run ;;
 

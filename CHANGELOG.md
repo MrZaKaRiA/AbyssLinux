@@ -1,5 +1,10 @@
 # Changelog
 
+## Updates since v27.0 (delivered through the Abyss PMR: `sudo xbps-install -Su`)
+
+* **abyss-dwm 6.8_2:** `Super+B` (Cmd+B on a Mac) opens the browser through the Abyss menu. If no browser is installed, it now shows a notification telling you how to install one, instead of silently doing nothing (the ISO ships without a browser).
+* Abyss menu, future ISOs: the "No web browser installed" notification now suggests `sudo xbps-install firefox`.
+
 ## v27.0 (2026-10-20): first public release
 
 ISOs: `abyss-linux-27.0-aarch64.iso`, `abyss-linux-27.0-x86_64.iso`

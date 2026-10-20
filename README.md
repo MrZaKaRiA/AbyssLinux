@@ -197,7 +197,7 @@ The installer is Void's `void-installer` with Abyss changes: one-step automatic 
 
 | Package | Upstream | Patches and changes | Purpose |
 |---|---|---|---|
-| `abyss-dwm` 6.8_1 | dwm 6.8 + git `bca7cf2` | [systray](https://dwm.suckless.org/patches/systray/), [status2d](https://dwm.suckless.org/patches/status2d/), [vanitygaps](https://dwm.suckless.org/patches/vanitygaps/), [scratchpad](https://dwm.suckless.org/patches/scratchpad/), [attachaside](https://dwm.suckless.org/patches/attachaside/), [autostart](https://dwm.suckless.org/patches/autostart/); Abyss theme; status click → menu | Tiling window manager |
+| `abyss-dwm` 6.8_2 | dwm 6.8 + git `bca7cf2` | [systray](https://dwm.suckless.org/patches/systray/), [status2d](https://dwm.suckless.org/patches/status2d/), [vanitygaps](https://dwm.suckless.org/patches/vanitygaps/), [scratchpad](https://dwm.suckless.org/patches/scratchpad/), [attachaside](https://dwm.suckless.org/patches/attachaside/), [autostart](https://dwm.suckless.org/patches/autostart/); Abyss theme; status click → menu | Tiling window manager |
 | `abyss-st` 0.9.3_1 | st 0.9.3 + git `fdaadd5` | [clipboard](https://st.suckless.org/patches/clipboard/); Abyss 16-colour palette; font in points (`size=11`) for HiDPI | Terminal |
 | `abyss-dmenu` 5.4_1 | dmenu 5.4 + git `8627d0c` | [center](https://tools.suckless.org/dmenu/patches/center/) `-c`, [border](https://tools.suckless.org/dmenu/patches/border/) `-bw`, [line-height](https://tools.suckless.org/dmenu/patches/line-height/) `-h`, [password](https://tools.suckless.org/dmenu/patches/password/) `-P`, case-insensitive by default; Abyss colours | Menu / launcher |
 | `abyss-slock` 1.7_1 | slock 1.7 + git `65cb721` | config: privilege-drop group, colours | Screen locker |
