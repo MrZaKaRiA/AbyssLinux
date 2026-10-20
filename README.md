@@ -364,4 +364,10 @@ Bug reports, fixes, new patches and ideas are welcome. See [CONTRIBUTING.md](CON
 
 Abyss Linux is a community project and is not affiliated with Void Linux or suckless.org.
 
-<div align="center"><sub>Made by <a href="https://github.com/MrZaKaRiA">MrZaKaRiA</a> · Abyss purple #a855f7</sub></div>
+---
+
+<div align="center">
+
+© 2026 Abyss Linux · Made with 💜 & <a href="https://voidlinux.org">Void Linux</a> & <a href="https://suckless.org">Suckless</a> · By <a href="https://mrzakaria.com">MrZaKaRiA</a>
+
+</div>
