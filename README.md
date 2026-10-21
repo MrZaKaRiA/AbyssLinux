@@ -77,6 +77,11 @@ Void already packages the suckless tools. Its `xbps-src` system makes it easy to
 
 ## Download v27.1
 
+<p align="center">
+  <a href="https://github.com/MrZaKaRiA/AbyssLinux/releases"><img alt="Total downloads" src="https://img.shields.io/github/downloads/MrZaKaRiA/AbyssLinux/total?style=for-the-badge&label=total%20downloads&color=a855f7&logo=linux&logoColor=white"></a>
+  <a href="https://github.com/MrZaKaRiA/AbyssLinux/releases/tag/v27.1"><img alt="v27.1 downloads" src="https://img.shields.io/github/downloads/MrZaKaRiA/AbyssLinux/v27.1/total?style=for-the-badge&label=v27.1%20downloads&color=7c3aed"></a>
+</p>
+
 | File | Architecture | For | Size | SHA-256 |
 |---|---|---|---|---|
 | [`abyss-linux-27.1-aarch64.iso`](https://github.com/MrZaKaRiA/AbyssLinux/releases/download/v27.1/abyss-linux-27.1-aarch64.iso) | ARM64 (aarch64), UEFI | Apple Silicon Macs (Apple Virtualization, UTM, Parallels, QEMU), ARM64 servers and boards with UEFI | 1.62 GiB | `50707aae83246c3462a43b479795db075bb3f606aed3f56c0a76e7730609f4f7` |
