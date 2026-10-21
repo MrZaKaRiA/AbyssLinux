@@ -1,6 +1,8 @@
 # Changelog
 
-## Next ISO (unreleased)
+## v27.1 (2026-10-21)
+
+ISOs: `abyss-linux-27.1-aarch64.iso`, `abyss-linux-27.1-x86_64.iso`
 
 * **Boot to desktop in one picture:** Plymouth "Abyss" splash from the initramfs, then a LightDM login screen on the same artwork with your user preselected and the password box at the bottom centre (`quiet splash`). The live ISO logs in automatically; the installer turns that off for installed systems. No text login on tty1 any more (tty2-6 stay available).
 * **Shutdown fixed:** `poweroff`/`reboot` failed on some installs with `init: fatal: unable to create /etc/runit/stopit`. A boot-time repair (`/etc/runit/core-services/11-abyss-runit-ctl.sh`) relinks runit's control files, and the new `abyss-power` helper falls back to a clean manual shutdown if runit's path still fails. `abyss-power diagnose` prints the details.

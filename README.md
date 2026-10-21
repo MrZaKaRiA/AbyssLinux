@@ -21,7 +21,7 @@
 
 - [The story](#the-story)
 - [Why Void Linux and suckless fit together](#why-void-linux-and-suckless-fit-together)
-- [Download v27.0](#download-v270)
+- [Download v27.1](#download-v271)
 - [Install](#install)
 - [The desktop](#the-desktop)
 - [Keyboard and mouse](#keyboard-and-mouse)
@@ -75,12 +75,14 @@ Void already packages the suckless tools. Its `xbps-src` system makes it easy to
 
 ---
 
-## Download v27.0
+## Download v27.1
 
 | File | Architecture | For | Size | SHA-256 |
 |---|---|---|---|---|
-| [`abyss-linux-27.0-aarch64.iso`](https://github.com/MrZaKaRiA/AbyssLinux/releases/download/v27.0/abyss-linux-27.0-aarch64.iso) | ARM64 (aarch64), UEFI | Apple Silicon Macs (Apple Virtualization, UTM, Parallels, QEMU), ARM64 servers and boards with UEFI | 1.58 GiB | `d511029fb5118650c0e69c14df993eb65880c9e9a7c333ee70951c19e2b1ed37` |
-| [`abyss-linux-27.0-x86_64.iso`](https://github.com/MrZaKaRiA/AbyssLinux/releases/download/v27.0/abyss-linux-27.0-x86_64.iso) | x86-64, UEFI and BIOS | PCs, laptops, VirtualBox, VMware, QEMU/KVM, Hyper-V | 1.59 GiB | `4ba82005000edd24eb93a854912bfafbdf06c22b8bedaff6d09f6425096e7141` |
+| [`abyss-linux-27.1-aarch64.iso`](https://github.com/MrZaKaRiA/AbyssLinux/releases/download/v27.1/abyss-linux-27.1-aarch64.iso) | ARM64 (aarch64), UEFI | Apple Silicon Macs (Apple Virtualization, UTM, Parallels, QEMU), ARM64 servers and boards with UEFI | 1.62 GiB | `50707aae83246c3462a43b479795db075bb3f606aed3f56c0a76e7730609f4f7` |
+| [`abyss-linux-27.1-x86_64.iso`](https://github.com/MrZaKaRiA/AbyssLinux/releases/download/v27.1/abyss-linux-27.1-x86_64.iso) | x86-64, UEFI and BIOS | PCs, laptops, VirtualBox, VMware, QEMU/KVM, Hyper-V | 1.64 GiB | `ed8c50ef449a5ab9c05ac7b44ce2f91db942d073fb59ba2820c0b3b7b7e0cf97` |
+
+[`SHA256SUMS`](https://github.com/MrZaKaRiA/AbyssLinux/releases/download/v27.1/SHA256SUMS) · [what's new in 27.1](https://github.com/MrZaKaRiA/AbyssLinux/releases/tag/v27.1) · [older releases](https://github.com/MrZaKaRiA/AbyssLinux/releases)
 
 Verify a download:
 
@@ -91,7 +93,7 @@ shasum -a 256 -c SHA256SUMS        # macOS
 
 **Requirements:** 2 CPU cores, 2 GB RAM (4 GB recommended), 16 GB disk, UEFI firmware (aarch64) or UEFI/BIOS (x86_64). In a VM, give it a virtio GPU, virtio disk and virtio network if you can.
 
-**Live session:** boots straight into the desktop as user `anon` (password `voidlinux`; root password `voidlinux`). The hostname is `abyss-live` and the ISO label is `ABYSS_LIVE`.
+**Live session:** boots through the Abyss splash straight into the desktop as user `anon` (password `voidlinux`; root password `voidlinux`). The hostname is `abyss-live` and the ISO label is `ABYSS_LIVE`.
 
 ---
 
