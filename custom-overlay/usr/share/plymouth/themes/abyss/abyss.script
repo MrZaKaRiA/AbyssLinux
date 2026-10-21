@@ -1,0 +1,69 @@
+# Abyss Linux plymouth theme
+# The artwork fills the screen (cover), a thin progress bar sits at the bottom
+# centre, and a disk-unlock password prompt (LUKS) appears just above it.
+
+Window.SetBackgroundTopColor(0.035, 0.02, 0.08);
+Window.SetBackgroundBottomColor(0.035, 0.02, 0.08);
+
+sw = Window.GetWidth();
+sh = Window.GetHeight();
+
+# ---- artwork, scaled to cover the whole screen ------------------------------
+art = Image("background.png");
+scale = Math.Max(sw / art.GetWidth(), sh / art.GetHeight());
+art = art.Scale(Math.Int(art.GetWidth() * scale), Math.Int(art.GetHeight() * scale));
+art_sprite = Sprite(art);
+art_sprite.SetPosition(Math.Int((sw - art.GetWidth()) / 2), Math.Int((sh - art.GetHeight()) / 2), -100);
+
+# ---- progress bar ------------------------------------------------------------
+bar_w = Math.Int(sw * 0.16);
+bar_h = Math.Max(3, Math.Int(sh / 320));
+bar_x = Math.Int((sw - bar_w) / 2);
+bar_y = Math.Int(sh * 0.88);
+
+track_sprite = Sprite(Image("bar-track.png").Scale(bar_w, bar_h));
+track_sprite.SetPosition(bar_x, bar_y, 10);
+
+fill_image = Image("bar-fill.png");
+fill_sprite = Sprite();
+fill_sprite.SetPosition(bar_x, bar_y, 11);
+
+fun progress_callback(duration, progress) {
+    w = Math.Int(global.bar_w * progress);
+    if (w < 1) w = 1;
+    global.fill_sprite.SetImage(global.fill_image.Scale(w, global.bar_h));
+}
+Plymouth.SetBootProgressFunction(progress_callback);
+
+# ---- password prompt (encrypted disks) ---------------------------------------
+font = "Sans " + Math.Int(Math.Max(11, sh / 70));
+prompt_sprite = Sprite();
+bullets_sprite = Sprite();
+
+fun place_centered(sprite, image, y) {
+    sprite.SetImage(image);
+    sprite.SetPosition(Math.Int((global.sw - image.GetWidth()) / 2), y, 20);
+    sprite.SetOpacity(1);
+}
+
+fun password_callback(prompt, bullets) {
+    stars = "";
+    for (i = 0; i < bullets; i++) stars += "•";
+    if (stars == "") stars = " ";
+    place_centered(global.prompt_sprite, Image.Text(prompt, 0.95, 0.91, 1, 1, global.font), global.bar_y - Math.Int(global.sh * 0.09));
+    place_centered(global.bullets_sprite, Image.Text(stars, 0.66, 0.33, 0.97, 1, global.font), global.bar_y - Math.Int(global.sh * 0.05));
+}
+Plymouth.SetDisplayPasswordFunction(password_callback);
+
+fun normal_callback() {
+    global.prompt_sprite.SetOpacity(0);
+    global.bullets_sprite.SetOpacity(0);
+}
+Plymouth.SetDisplayNormalFunction(normal_callback);
+
+# ---- messages (e.g. "Checking filesystems") ---------------------------------
+message_sprite = Sprite();
+fun message_callback(text) {
+    place_centered(global.message_sprite, Image.Text(text, 0.85, 0.80, 0.95, 0.9, global.font), global.bar_y + Math.Int(global.sh * 0.03));
+}
+Plymouth.SetMessageFunction(message_callback);

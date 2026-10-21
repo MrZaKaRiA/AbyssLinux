@@ -15,12 +15,21 @@ The builder deletes the old ISO before copying the new one, so a VM that has it 
 | `/usr/local/bin/abyss-installer` | 0755 | Opens void-installer as root in its own st window with a large font (`size=14`, scaled by Xft.dpi) and the purple accent. |
 | `/usr/bin/void-installer` | 0755 | Upstream installer; title is "Abyss Linux installer (<build date>)", exports `DIALOGRC=/etc/dialogrc`, resets the installed tty1 to a normal login prompt (the live autologin user `anon` is deleted), removes xmirror before dialog. |
 | `/etc/dialogrc` | 0644 | Dark, high-contrast dialog theme: light text on black, purple highlight, no shadow. |
-| `/usr/local/bin/dwm-statusbar` | 0755 | Minimal status text: CPU, RAM, clock, `offline` only when there is no network, and a purple ` Menu ` button. |
+| `/usr/local/bin/dwm-statusbar` | 0755 | NET ↓/↑ real transfer speed of physical interfaces (`offline` without network), CPU % + temperature (hidden without a sensor), RAM, SSD used/size of `/` (red ≥ 90 %), clock, purple ` Menu ` button. |
+| `/usr/share/plymouth/themes/abyss/` | 0644 | Plymouth "script" theme: the Abyss artwork scaled to cover the screen, a thin progress bar and a password prompt (LUKS) at the bottom centre. Selected in `/etc/plymouth/plymouthd.conf`, pulled into the initramfs by `/etc/dracut.conf.d/40-abyss-plymouth.conf`; kernel line has `quiet splash`. |
+| `/etc/lightdm/lightdm.conf.d/50-abyss.conf` | 0644 | LightDM: gtk greeter, `abyss` session, `X -background none` so the splash frame stays until the greeter draws (LightDM quits plymouth with `--retain-splash`). The main `lightdm.conf` stays stock; on the live ISO the boot hook writes its autologin lines (session name from `/etc/lightdm/.session`), the installer comments them out again. |
+| `/etc/lightdm/lightdm-gtk-greeter.conf` | 0644 | Login screen: same artwork, user preselected, password box at the bottom centre (`position=50%,center 86%,end`), only a power button. |
+| `/usr/share/xsessions/abyss.desktop`, `/usr/local/bin/abyss-session` | 0644 / 0755 | "Abyss (dwm)" session: runs `~/.xinitrc`, the same file startx uses. |
+| `/usr/local/bin/abyss-display-setup` | 0755 | LightDM display-setup-script: gives the greeter the desktop's Xft.dpi (2x in Apple VMs / ≥1700 px). Pin with `/etc/abyss/dpi`. |
+| `/usr/local/bin/abyss-power` | 0755 | poweroff/reboot/suspend/hibernate that always work: normal runit path, then repair `/etc/runit/{stopit,reboot}` and signal runit, then a clean manual shutdown. `abyss-power diagnose` prints the runit control state. Bash aliases `poweroff`/`reboot` and the menu use it. |
+| `/usr/local/bin/abyss-apps` | 0755 | Builds the menu's Applications submenu from .desktop files: grouped by category, real icons (Abyss/Papirus SVG via imlib2), "Name · what it is". Cached in `~/.cache/abyss/apps.xmenu`. |
+| `/etc/runit/core-services/11-abyss-runit-ctl.sh` | 0644 | Boot-time repair of the `/etc/runit/stopit` and `reboot` symlinks (cause of `init: fatal: unable to create /etc/runit/stopit`). |
+| `/etc/sudoers.d/abyss-power` | **0440** | wheel may run `/usr/local/bin/abyss-power` without a password (doas.conf has the same rule). |
 | `/usr/local/bin/abyss-keyboard` | 0755 | setxkbmap us,ara(digits), Alt+Shift toggle, Caps=Esc, optional Super-on-Left-Alt, `--status`, `--test`. |
 | `/usr/local/bin/abyss-shortcuts` | 0755 | Cheatsheet, now matching the real `dwm/config.h` bindings. |
 | `/etc/X11/xorg.conf.d/00-keyboard.conf` | 0644 | Same layout/options at server level (covers hotplugged keyboards). |
 | `/etc/rc.conf` | 0644 | Stock Void rc.conf + silent-boot block: with `quiet`, runit stage 1/3 output goes to `/run/abyss-boot.log`; console is restored if boot drops to the emergency shell. |
-| `/etc/sv/agetty-tty1/conf` | 0644 | Silent autologin (`--skip-login --nonewline --noissue -a anon`). |
+| `/etc/sv/agetty-tty1/conf` | 0644 | Unused by default: tty1 has no getty any more (LightDM owns the screen; `DEFAULT_SERVICE_LIST` starts agetty on tty2-tty6 only). Kept for anyone who re-enables text autologin. |
 | `/etc/default/grub` | 0644 | Installed systems: hidden menu, `quiet loglevel=3`. |
 | `/etc/doas.conf` | **0400 root:root** | `permit persist keepenv :wheel` + passwordless reboot/poweroff/zzz/ZZZ. |
 | `/etc/skel/.bash_profile` | 0644 | startx on tty1 only (no DISPLAY/WAYLAND/SSH, no running Xorg); X output → `~/.local/share/xorg/startx.log`. |

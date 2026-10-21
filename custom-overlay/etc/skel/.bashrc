@@ -44,3 +44,8 @@ alias u="$__abyss_priv xbps-install -Su"     # update the whole system
 alias i="$__abyss_priv xbps-install -S"      # install: i <pkg>...
 alias q='xbps-query -Rs'                     # query/search: q <term>
 alias r="$__abyss_priv xbps-remove -R"       # remove with orphaned deps: r <pkg>...
+
+# Power: go through abyss-power, which falls back to a clean manual shutdown
+# if runit's normal path fails (see `abyss-power diagnose`)
+alias poweroff='abyss-power poweroff'
+alias reboot='abyss-power reboot'

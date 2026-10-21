@@ -1,0 +1,8 @@
+[Plymouth Theme]
+Name=Abyss
+Description=Abyss Linux splash: full-screen artwork, progress bar and password prompt at the bottom centre
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/abyss
+ScriptFile=/usr/share/plymouth/themes/abyss/abyss.script

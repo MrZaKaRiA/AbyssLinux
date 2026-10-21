@@ -5,7 +5,7 @@
 
 set -euo pipefail
 
-BUILDER_DIR="${1:-${BUILDER_DIR:-/tmp/void-builder}}"
+BUILDER_DIR="${1:-${BUILDER_DIR:-${HOME}/Library/Caches/abyss-builder}}"
 export BUILDER_DIR
 
 if [[ -f "${BUILDER_DIR}/vmlinux" && -d "${BUILDER_DIR}/rootfs/usr" ]]; then

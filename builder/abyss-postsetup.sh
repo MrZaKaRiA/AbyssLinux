@@ -36,7 +36,17 @@ for f in "$ROOTFS"/etc/rc.conf "$ROOTFS"/etc/default/grub "$ROOTFS"/etc/dialogrc
     [ -f "$f" ] && chmod 0644 "$f"
 done
 # doas refuses a config that others can write; keep it root-only
+# Boot splash and login screen: plain readable files (the greeter runs as the
+# lightdm user, plymouth reads its theme while building the initramfs)
+for f in "$ROOTFS"/etc/lightdm/*.conf "$ROOTFS"/etc/lightdm/.session "$ROOTFS"/etc/lightdm/lightdm.conf.d/*.conf \
+         "$ROOTFS"/etc/plymouth/plymouthd.conf "$ROOTFS"/etc/dracut.conf.d/40-abyss-plymouth.conf \
+         "$ROOTFS"/usr/share/xsessions/abyss.desktop "$ROOTFS"/usr/share/plymouth/themes/abyss/*; do
+    [ -f "$f" ] && chmod 0644 "$f"
+done
 [ -f "$ROOTFS/etc/doas.conf" ] && chmod 0400 "$ROOTFS/etc/doas.conf"
+# sudo ignores drop-ins that are not 0440 root:root
+[ -f "$ROOTFS/etc/sudoers.d/abyss-power" ] && chmod 0440 "$ROOTFS/etc/sudoers.d/abyss-power"
+[ -f "$ROOTFS/etc/runit/core-services/11-abyss-runit-ctl.sh" ] && chmod 0644 "$ROOTFS/etc/runit/core-services/11-abyss-runit-ctl.sh"
 
 # Release version: $ABYSS_VERSION, else the repository's VERSION file, else the date
 VERSION_FILE="$(dirname "$0")/../VERSION"
@@ -62,7 +72,7 @@ echo "[abyss] version $ABYSS_VERSION"
 
 # Report (not fatal) what the Abyss desktop scripts expect to find
 missing=""
-for c in dwm st dmenu slock tabbed wmname xmenu xdotool sxhkd setxkbmap xrdb xmodmap xev doas rofi lf vim mpv dunst; do
+for c in dwm st dmenu slock tabbed wmname xmenu xdotool sxhkd setxkbmap xrdb xmodmap xev doas rofi lf vim mpv dunst plymouth lightdm lightdm-gtk-greeter; do
     [ -x "$ROOTFS/usr/bin/$c" ] || missing="$missing $c"
 done
 [ -n "$missing" ] && echo "[abyss] WARNING: not in image:$missing (menu/keyboard fall back where possible)"

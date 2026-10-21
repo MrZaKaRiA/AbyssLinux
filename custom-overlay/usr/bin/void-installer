@@ -748,7 +748,7 @@ menu_hostname() {
 
 set_hostname() {
     local hostname="$(get_option HOSTNAME)"
-    echo "${hostname:-void}" > $TARGETDIR/etc/hostname
+    echo "${hostname:-abyss}" > $TARGETDIR/etc/hostname
 }
 
 menu_rootpassword() {
@@ -794,7 +794,7 @@ menu_useraccount() {
 
     while true; do
         _preset=$(get_option USERLOGIN)
-        [ -z "$_preset" ] && _preset="void"
+        [ -z "$_preset" ] && _preset="abyss"
         DIALOG --inputbox "Enter a primary login name:" ${INPUTSIZE} "$_preset"
         if [ $? -eq 0 ]; then
             _userlogin="$(cat $ANSWER)"
@@ -815,7 +815,7 @@ menu_useraccount() {
 
     while true; do
         _preset=$(get_option USERNAME)
-        [ -z "$_preset" ] && _preset="Void User"
+        [ -z "$_preset" ] && _preset="Abyss User"
         DIALOG --inputbox "Enter a display name for login '$(get_option USERLOGIN)' :" \
             ${INPUTSIZE} "$_preset"
         if [ $? -eq 0 ]; then
@@ -1537,6 +1537,11 @@ Root partition not empty! Aborting..." ${MSGBOXSIZE}
         rm -f $TARGETDIR/usr/sbin/void-installer
         # Remove modified sddm.conf to let sddm use the defaults.
         rm -f $TARGETDIR/etc/sddm.conf
+        # Abyss: the live boot hook enabled LightDM autologin for the live
+        # user; the installed system shows the greeter and asks for a password.
+        if [ -f $TARGETDIR/etc/lightdm/lightdm.conf ]; then
+            sed -i -E 's,^(autologin-(user|user-timeout|session)=),#\1,' $TARGETDIR/etc/lightdm/lightdm.conf
+        fi
         # Remove live user.
         echo "Removing $USERNAME live user from targetdir ..." >$LOG
         chroot $TARGETDIR userdel -r $USERNAME >$LOG 2>&1
@@ -1701,7 +1706,7 @@ menu() {
         AFTER_HOSTNAME="Timezone"
         DIALOG --default-item $DEFITEM \
             --extra-button --extra-label "Settings" \
-            --title " Void Linux installation menu " \
+            --title " Abyss Linux installation menu " \
             --menu "$MENULABEL" 10 70 0 \
             "Keyboard" "Set system keyboard" \
             "Network" "Set up the network" \
@@ -1720,7 +1725,7 @@ menu() {
         AFTER_HOSTNAME="Locale"
         DIALOG --default-item $DEFITEM \
             --extra-button --extra-label "Settings" \
-            --title " Void Linux installation menu " \
+            --title " Abyss Linux installation menu " \
             --menu "$MENULABEL" 10 70 0 \
             "Keyboard" "Set system keyboard" \
             "Network" "Set up the network" \
@@ -1781,13 +1786,14 @@ fi
 #
 # main()
 #
-DIALOG --title "${BOLD}${RED} Enter the void ... ${RESET}" --msgbox "\n
-Welcome to the Void Linux installation. A simple and minimal \
-Linux distribution made from scratch and built from the source package tree \
-available for XBPS, a new alternative binary package system.\n\n
-The installation should be pretty straightforward. If you are in trouble \
-please join us at ${BOLD}#voidlinux${RESET} on ${BOLD}irc.libera.chat${RESET}.\n\n
-${BOLD}https://www.voidlinux.org${RESET}\n\n" 16 80
+DIALOG --title "${BOLD}${RED} Enter the abyss ... ${RESET}" --msgbox "\n
+Welcome to the Abyss Linux installation. Abyss is a minimal, rolling, \
+systemd-free desktop with the suckless tools (dwm, st, dmenu) ready to use, \
+no compiling needed.\n\n
+Pick your keyboard, language and time zone, create your user, and let \
+automatic partitioning prepare the disk. It only takes a few minutes.\n\n
+${BOLD}https://github.com/MrZaKaRiA${RESET}\n
+Built on Void Linux: ${BOLD}https://voidlinux.org${RESET}\n\n" 16 80
 
 while true; do
     menu

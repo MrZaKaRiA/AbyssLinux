@@ -4,6 +4,12 @@ if [ -f "$HOME/.bashrc" ]; then
     . "$HOME/.bashrc"
 fi
 
+# The kernel hides the console cursor (vt.global_cursor_default=0) so it never
+# blinks over the boot splash; bring it back for text logins on tty2-tty6.
+case "$(tty)" in
+    /dev/tty[0-9]*) command -v setterm >/dev/null 2>&1 && setterm --cursor on ;;
+esac
+
 # Start X (dwm) automatically on tty1 only, and only when:
 #   - no X/Wayland display is already set (not inside a GUI terminal or ssh -X)
 #   - this is the local console tty1 (not ssh, not tty2-6)

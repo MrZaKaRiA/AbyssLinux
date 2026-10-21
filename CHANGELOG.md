@@ -1,5 +1,16 @@
 # Changelog
 
+## Next ISO (unreleased)
+
+* **Boot to desktop in one picture:** Plymouth "Abyss" splash from the initramfs, then a LightDM login screen on the same artwork with your user preselected and the password box at the bottom centre (`quiet splash`). The live ISO logs in automatically; the installer turns that off for installed systems. No text login on tty1 any more (tty2-6 stay available).
+* **Shutdown fixed:** `poweroff`/`reboot` failed on some installs with `init: fatal: unable to create /etc/runit/stopit`. A boot-time repair (`/etc/runit/core-services/11-abyss-runit-ctl.sh`) relinks runit's control files, and the new `abyss-power` helper falls back to a clean manual shutdown if runit's path still fails. `abyss-power diagnose` prints the details.
+* **Abyss menu, reorganised:** a header with user, host and uptime, then Terminal, Files and Web browser, then an **Applications** submenu built from your installed apps. Apps are grouped by category, with their real icons and a short description ("Thunar · File Manager"), plus search and run. Settings are grouped into Network, Sound, Display (including text size), Keyboard and Appearance; System has a monitor, disks, services and power diagnostics; Session holds lock, sleep, log out, restart and shut down.
+* **rofi app search** now shows icons and what each app is.
+* **Status bar:** compact, icon based: network ↓/↑ speed, CPU % with temperature (when the machine has a sensor), RAM, disk, clock.
+* **Installer:** Abyss texts and defaults ("Enter the abyss", "Abyss Linux installation menu").
+* Shell: `poweroff`/`reboot` aliases go through `abyss-power`; vi mode and the `u`/`i`/`q`/`r` xbps aliases.
+* Build: the macOS builder VM moved from `/tmp` to `~/Library/Caches/abyss-builder` (macOS cleans `/tmp`, which broke the builder's network), and a failed x86_64 build no longer deletes the previous ISO.
+
 ## Updates since v27.0 (delivered through the Abyss PMR: `sudo xbps-install -Su`)
 
 * **abyss-theme 1.0_1 (new):** Thunar and other GTK apps are no longer white. The "Abyss" GTK 3 theme (Adwaita dark with the Abyss palette) and the "Abyss" icon theme (Papirus-Dark with violet folders) are now the system-wide default.

@@ -1,69 +1,158 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# dwm-statusbar - minimal status text (status2d colours)
-# Shows only CPU, memory and the clock, plus "offline" when there is no network.
+# dwm-statusbar - status text for the dwm bar (status2d colours)
+#
+#   ↓1.2M ↑48K   12% 54°  󰍛 1.8/7.7G  󰋊 9.4/58G  Tue 20 14:05  Menu
+#
+# ↓ ↑   real transfer speed per second of all physical interfaces (bytes moved
+#       / seconds elapsed), "offline" when there is no network
+#      CPU usage since the last update, then the CPU temperature (red from
+#       85°; hidden when the machine has no sensor, which is normal in VMs)
+# 󰍛     memory used / total        󰋊  used / size of the filesystem holding /
 # The last block is the Abyss menu button: clicking the status text
 # (or Super+Escape) runs abyss-control-center.
 # ==============================================================================
 
 set -u
 
+INTERVAL=2
 LABEL="^c#a78bfa^"      # dim purple labels
 VALUE="^c#f3e8ff^"      # light values
-WARN="^c#fb7185^"
+WARN="^c#fb7185^"       # red: offline, hot, nearly full
 MENU="^b#a855f7^^c#090514^ Menu ^d^"
+SEP="  "
+
+# ---- network -----------------------------------------------------------------
+# Physical interfaces only (they have a device/ link): skips lo, docker0,
+# veth*, virbr*, bridges and VPN tunnels so traffic is not counted twice.
+net_ifaces() {
+    local d
+    for d in /sys/class/net/*; do
+        [[ -e "$d/device" ]] || continue
+        echo "${d##*/}"
+    done
+}
+
+net_bytes() {  # prints "rx tx" summed over physical interfaces
+    local i rx=0 tx=0 r t
+    for i in $(net_ifaces); do
+        read -r r < "/sys/class/net/$i/statistics/rx_bytes" 2>/dev/null || r=0
+        read -r t < "/sys/class/net/$i/statistics/tx_bytes" 2>/dev/null || t=0
+        rx=$(( rx + r )); tx=$(( tx + t ))
+    done
+    echo "$rx $tx"
+}
 
 online() {
     ip route show default 2>/dev/null | grep -q . && return 0
-    for dev in /sys/class/net/*; do
-        [[ "${dev##*/}" == lo ]] && continue
-        [[ -r "$dev/operstate" && "$(<"$dev/operstate")" == up ]] && return 0
+    local i
+    for i in $(net_ifaces); do
+        [[ "$(cat "/sys/class/net/$i/operstate" 2>/dev/null)" == up ]] && return 0
     done
     return 1
 }
 
-read_cpu_stat() {
-    awk '/^cpu / {
-        idle = $5 + $6;
-        total = $2 + $3 + $4 + $5 + $6 + $7 + $8 + $9;
-        print total, idle;
-        exit
-    }' /proc/stat 2>/dev/null
-}
-
-get_ram_usage() {
-    free -h 2>/dev/null | awk '/^Mem:/ {
-        gsub(/i/, "", $3);
-        gsub(/i/, "", $2);
-        printf "%s/%s", $3, $2
+human_rate() {  # bytes per second -> 0B, 512K, 1.2M, 1.1G
+    awk -v b="$1" 'BEGIN {
+        if (b < 1024)            printf "%dB", b
+        else if (b < 1048576)    printf "%dK", b / 1024
+        else if (b < 1073741824) printf "%.1fM", b / 1048576
+        else                     printf "%.1fG", b / 1073741824
     }'
 }
 
-read -r PREV_CPU_TOTAL PREV_CPU_IDLE <<< "$(read_cpu_stat)"
-PREV_CPU_TOTAL=${PREV_CPU_TOTAL:-0}
-PREV_CPU_IDLE=${PREV_CPU_IDLE:-0}
+# ---- cpu ---------------------------------------------------------------------
+cpu_stat() {  # prints "total idle"
+    awk '/^cpu / { print $2+$3+$4+$5+$6+$7+$8+$9, $5+$6; exit }' /proc/stat 2>/dev/null
+}
 
+# Find the CPU temperature input once: known CPU hwmon drivers first,
+# then CPU thermal zones. Empty when there is none (typical in VMs).
+find_cpu_temp() {
+    local h name z type
+    for h in /sys/class/hwmon/hwmon*; do
+        name=$(cat "$h/name" 2>/dev/null)
+        case "$name" in
+            coretemp|k10temp|zenpower|cpu_thermal|cpu-thermal|soc_thermal|apple_soc)
+                for f in "$h"/temp1_input "$h"/temp*_input; do
+                    [[ -r "$f" ]] && { echo "$f"; return; }
+                done ;;
+        esac
+    done
+    for z in /sys/class/thermal/thermal_zone*; do
+        type=$(cat "$z/type" 2>/dev/null)
+        case "$type" in
+            x86_pkg_temp|cpu*|soc*|*cpu*) [[ -r "$z/temp" ]] && { echo "$z/temp"; return; } ;;
+        esac
+    done
+    [[ -r /sys/class/thermal/thermal_zone0/temp ]] && echo /sys/class/thermal/thermal_zone0/temp
+}
+
+cpu_temp() {
+    [[ -n "$TEMP_FILE" ]] || return
+    local t
+    read -r t < "$TEMP_FILE" 2>/dev/null || return
+    [[ "$t" =~ ^[0-9]+$ ]] || return
+    t=$(( t / 1000 ))
+    if (( t >= 85 )); then printf ' %s%d°' "$WARN" "$t"; else printf ' %s%d°' "$VALUE" "$t"; fi
+}
+
+# ---- memory / disk -----------------------------------------------------------
+# "1.8G" "7.7G" -> "1.8/7.7G" (one unit when both match)
+pair() {
+    awk -v u="$1" -v t="$2" 'BEGIN {
+        uu = substr(u, length(u)); tu = substr(t, length(t))
+        if (uu == tu && uu ~ /[KMGTP]/) u = substr(u, 1, length(u) - 1)
+        printf "%s/%s", u, t
+    }'
+}
+
+ram() {
+    local used total
+    read -r used total < <(free -h 2>/dev/null | awk '/^Mem:/ { gsub(/i/, "", $2); gsub(/i/, "", $3); print $3, $2 }')
+    pair "$used" "$total"
+}
+
+ssd() {  # used/size, red from 90 %
+    local used size pct
+    read -r used size pct < <(df -h / 2>/dev/null | awk 'NR == 2 { sub(/%/, "", $5); print $3, $2, $5 }')
+    if (( ${pct:-0} >= 90 )); then printf '%s' "$WARN"; else printf '%s' "$VALUE"; fi
+    pair "$used" "$size"
+}
+
+# ---- main loop ---------------------------------------------------------------
+TEMP_FILE=$(find_cpu_temp)
+read -r PREV_TOTAL PREV_IDLE <<< "$(cpu_stat)"
+read -r PREV_RX PREV_TX <<< "$(net_bytes)"
+PREV_T=${EPOCHREALTIME/[.,]/}       # microseconds
 sleep 1
 
 while true; do
-    read -r CUR_CPU_TOTAL CUR_CPU_IDLE <<< "$(read_cpu_stat)"
-    CUR_CPU_TOTAL=${CUR_CPU_TOTAL:-0}
-    CUR_CPU_IDLE=${CUR_CPU_IDLE:-0}
-    DIFF_TOTAL=$(( CUR_CPU_TOTAL - PREV_CPU_TOTAL ))
-    DIFF_IDLE=$(( CUR_CPU_IDLE - PREV_CPU_IDLE ))
-    if (( DIFF_TOTAL > 0 )); then
-        CPU_PCT=$(( (100 * (DIFF_TOTAL - DIFF_IDLE)) / DIFF_TOTAL ))
+    NOW_T=${EPOCHREALTIME/[.,]/}
+    ELAPSED=$(( NOW_T - PREV_T )); (( ELAPSED > 0 )) || ELAPSED=1
+    PREV_T=$NOW_T
+
+    read -r TOTAL IDLE <<< "$(cpu_stat)"
+    DT=$(( ${TOTAL:-0} - ${PREV_TOTAL:-0} )); DI=$(( ${IDLE:-0} - ${PREV_IDLE:-0} ))
+    CPU_PCT=0
+    (( DT > 0 )) && CPU_PCT=$(( 100 * (DT - DI) / DT ))
+    PREV_TOTAL=${TOTAL:-0}; PREV_IDLE=${IDLE:-0}
+
+    read -r RX TX <<< "$(net_bytes)"
+    DRX=$(( RX - PREV_RX )); DTX=$(( TX - PREV_TX ))
+    (( DRX < 0 )) && DRX=0; (( DTX < 0 )) && DTX=0     # counters reset (link down/up)
+    PREV_RX=$RX; PREV_TX=$TX
+    DOWN=$(human_rate $(( DRX * 1000000 / ELAPSED )))
+    UP=$(human_rate $(( DTX * 1000000 / ELAPSED )))
+
+    if online; then
+        NET="${LABEL}↓${VALUE}${DOWN} ${LABEL}↑${VALUE}${UP}"
     else
-        CPU_PCT=0
+        NET="${WARN}offline"
     fi
-    PREV_CPU_TOTAL=$CUR_CPU_TOTAL
-    PREV_CPU_IDLE=$CUR_CPU_IDLE
 
-    NET=""
-    online || NET="${WARN}offline   "
-
-    STATUS="${NET}${LABEL}CPU ${VALUE}${CPU_PCT}%   ${LABEL}RAM ${VALUE}$(get_ram_usage)   ${VALUE}$(date '+%a %d %b  %H:%M')  ${MENU}"
+    STATUS="${NET}${SEP}${LABEL} ${VALUE}${CPU_PCT}%$(cpu_temp)${SEP}${LABEL}󰍛 ${VALUE}$(ram)${SEP}${LABEL}󰋊 $(ssd)${SEP}${VALUE}$(date '+%a %d %H:%M') ${MENU}"
 
     xsetroot -name "$STATUS" 2>/dev/null || true
-    sleep 2
+    sleep "$INTERVAL"
 done

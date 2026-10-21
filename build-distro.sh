@@ -33,17 +33,21 @@ PKGS_BROWSERS_DEV="firefox chromium vscode nodejs python3 python3-pip go rust gc
 PKGS_CONTAINERS_VM_AI="docker docker-compose docker-buildx qemu libvirt virt-manager bridge-utils ollama flatpak"
 PKGS_ARTCRAFT="gimp inkscape krita blender darktable"
 PKGS_ABYSS="xmenu xdotool sxhkd setxkbmap xrdb xmodmap xev opendoas mpv vim lf rofi dunst file chafa tumbler xdg-user-dirs"
+# Graphical boot: plymouth splash from the initramfs, LightDM greeter on top of it
+PKGS_ABYSS="${PKGS_ABYSS} plymouth lightdm lightdm-gtk-greeter"
 # Abyss builds of the suckless tools from the signed Abyss PMR
 ABYSS_PMR="${ABYSS_PMR:-https://mrzakaria.github.io/AbyssLinuxPMR/current}"
 PKGS_SUCKLESS="abyss-dwm abyss-st abyss-dmenu abyss-slock abyss-tabbed abyss-wmname abyss-theme"
 
 ALL_PACKAGES="${PKGS_BASE_X11} ${PKGS_NET_AUDIO} ${PKGS_TERM_CLI} ${PKGS_SSH_TRANSFER} ${PKGS_BROWSERS_DEV} ${PKGS_CONTAINERS_VM_AI} ${PKGS_ARTCRAFT} ${PKGS_ABYSS} ${PKGS_SUCKLESS}"
-ENABLED_SERVICES="dbus elogind polkit NetworkManager sshd docker libvirtd virtlogd ollama"
+ENABLED_SERVICES="dbus elogind polkit NetworkManager sshd lightdm docker libvirtd virtlogd ollama"
 
 # Silent boot (later loglevel= overrides mklive's built-in loglevel=4)
-ABYSS_BOOT_CMDLINE="quiet loglevel=3 rd.udev.log_level=3 udev.log_level=3"
+ABYSS_BOOT_CMDLINE="quiet splash loglevel=3 rd.udev.log_level=3 udev.log_level=3 vt.global_cursor_default=0"
 ABYSS_POSTSETUP="${SCRIPT_DIR}/builder/abyss-postsetup.sh"
 ABYSS_SPLASH="${OVERLAY_DIR}/usr/share/backgrounds/abyss/abyss-splash.png"
+# No text login on tty1: LightDM owns the screen from the splash to the desktop
+ABYSS_DEFAULT_SERVICES="agetty-tty2 agetty-tty3 agetty-tty4 agetty-tty5 agetty-tty6 udevd"
 
 echo "=================================================================="
 echo "  Building Custom Void Linux Suckless Developer Workstation ISO"
@@ -55,7 +59,9 @@ echo "=================================================================="
 
 if [[ "$(uname -s)" == "Darwin" ]]; then
     echo "[*] Detected macOS host — running Void Linux mklive inside local QEMU HVF Builder VM..."
-    BUILDER_DIR="${BUILDER_DIR:-/tmp/void-builder}"
+    # Not under /tmp: macOS deletes /tmp files untouched for 3 days, which
+    # silently breaks the builder rootfs (no /dev, /sys -> no network in the VM).
+    BUILDER_DIR="${BUILDER_DIR:-${HOME}/Library/Caches/abyss-builder}"
 
     if [[ ! -f "${BUILDER_DIR}/vmlinux" || ! -d "${BUILDER_DIR}/rootfs/usr" ]]; then
         echo "[*] Builder VM assets not found in ${BUILDER_DIR}. Provisioning automatically..."
@@ -108,7 +114,7 @@ sh "${SCRIPT_DIR}/builder/abyss-mklive-tweaks.sh" "$MKLIVE_WORK/void-mklive"
 cd "$MKLIVE_WORK/void-mklive"
 
 # 1. Build aarch64 ISO
-sudo env SPLASH_IMAGE="$ABYSS_SPLASH" ./mklive.sh \
+sudo env SPLASH_IMAGE="$ABYSS_SPLASH" DEFAULT_SERVICE_LIST="$ABYSS_DEFAULT_SERVICES" ./mklive.sh \
     -a aarch64 \
     -r "$ABYSS_PMR" \
     -c "${MKLIVE_DIR}/xbps-cachedir-aarch64" \
@@ -124,7 +130,7 @@ sudo env SPLASH_IMAGE="$ABYSS_SPLASH" ./mklive.sh \
 cp -f "$OUTPUT_ISO_AARCH64" "$OUTPUT_ISO_DEFAULT"
 
 # 2. Build x86_64 ISO
-sudo env SPLASH_IMAGE="$ABYSS_SPLASH" ./mklive.sh \
+sudo env SPLASH_IMAGE="$ABYSS_SPLASH" DEFAULT_SERVICE_LIST="$ABYSS_DEFAULT_SERVICES" ./mklive.sh \
     -a x86_64 \
     -r "$ABYSS_PMR" \
     -c "${MKLIVE_DIR}/xbps-cachedir-x86_64" \

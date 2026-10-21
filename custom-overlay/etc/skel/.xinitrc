@@ -38,7 +38,7 @@ fi
 if command -v xrdb >/dev/null 2>&1; then
     xrdb -merge <<EOF
 Xft.dpi: $abyss_dpi
-xmenu.width: $(( 230 * abyss_dpi / 96 ))
+xmenu.width: $(( 260 * abyss_dpi / 96 ))
 xmenu.height: $(( 28 * abyss_dpi / 96 ))
 EOF
 fi
@@ -46,6 +46,9 @@ unset abyss_dpi abyss_h abyss_apple_vm
 
 # Keyboard: us,ara layouts, Alt+Shift toggle, Caps=Escape, Super fix inside VMs
 /usr/local/bin/abyss-keyboard
+
+# Index installed apps + icons for the menu now, so its first opening is instant
+[ -x /usr/local/bin/abyss-apps ] && /usr/local/bin/abyss-apps --refresh >/dev/null 2>&1 &
 
 # Desktop, Documents, Downloads, Music, Pictures, Videos... (their own folder
 # icons in Thunar and the sidebar)

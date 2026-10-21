@@ -5,6 +5,7 @@
 **A minimalist, rolling-release, systemd-free desktop built on Void Linux and the suckless tools.**
 
 [![Release](https://img.shields.io/github/v/release/MrZaKaRiA/AbyssLinux?color=a855f7&label=release)](https://github.com/MrZaKaRiA/AbyssLinux/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/MrZaKaRiA/AbyssLinux/total?color=a855f7&label=downloads)](https://github.com/MrZaKaRiA/AbyssLinux/releases)
 ![Architectures](https://img.shields.io/badge/arch-aarch64%20%7C%20x86__64-a855f7)
 ![Init](https://img.shields.io/badge/init-runit-a855f7)
 ![Base](https://img.shields.io/badge/base-Void%20Linux%20(glibc)-a855f7)

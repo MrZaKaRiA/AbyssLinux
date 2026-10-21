@@ -10,6 +10,6 @@ xmenu.separator:       #2e1065
 xmenu.border:          #c084fc
 xmenu.borderWidth:     2
 xmenu.separatorWidth:  1
-xmenu.width:           230
+xmenu.width:           260
 xmenu.height:          28
 xmenu.gap:             0

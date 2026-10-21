@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=Abyss (dwm)
+Comment=Abyss Linux desktop: dwm with the Abyss menu, status bar and hotkeys
+Exec=/usr/local/bin/abyss-session
+DesktopNames=dwm

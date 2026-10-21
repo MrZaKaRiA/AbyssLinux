@@ -2,11 +2,18 @@
 
 configuration {
     modi:                "drun,run,window";
-    show-icons:          false;
+    show-icons:          true;
+    icon-theme:          "Abyss";
     display-drun:        "Apps";
     display-run:         "Run";
     display-window:      "Windows";
-    drun-display-format: "{name}";
+    /* name, what it is (GenericName) and a short description (Comment), so
+       apps with unfamiliar names like "lf" or "Thunar" explain themselves */
+    drun-display-format: "{name}[<span alpha='65%'>  ·  {generic}</span>][<span size='small' alpha='45%'>   {comment}</span>]";
+    drun-match-fields:   "name,generic,comment,keywords,categories,exec";
+    font:                "JetBrainsMono Nerd Font 11";
+    terminal:            "st";
+}";
     font:                "JetBrainsMono Nerd Font 11";
     terminal:            "st";
 }
@@ -25,7 +32,7 @@ configuration {
 }
 
 window {
-    width:            40%;
+    width:            52%;
     background-color: @abyss-bg;
     border:           2px;
     border-color:     @abyss-accent;
@@ -93,4 +100,17 @@ element selected.normal, element selected.active {
 element-text, element-icon {
     background-color: inherit;
     text-color:       inherit;
+}
+
+element {
+    children: [ element-icon, element-text ];
+    spacing:  0.7em;
+}
+
+element-icon {
+    size: 1.6em;
+}
+
+element-text {
+    vertical-align: 0.5;
 }

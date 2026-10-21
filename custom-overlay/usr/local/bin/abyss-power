@@ -1,0 +1,136 @@
+#!/bin/sh
+# ==============================================================================
+# abyss-power - reliable power actions for Abyss Linux (runit)
+#
+#   abyss-power poweroff | reboot      shut down / restart
+#   abyss-power suspend  | hibernate   sleep (elogind, falls back to zzz/ZZZ)
+#   abyss-power diagnose               print what runit's shutdown path looks like
+#
+# poweroff/reboot try, in order:
+#   1. the normal runit path (halt -> runit-init, which writes /etc/runit/stopit)
+#   2. repair /etc/runit/{stopit,reboot} -> /run/runit/* and try again
+#   3. a clean manual shutdown: stop services, sync, unmount, then power off
+# Every step is logged to /run/abyss-power.log.
+#
+# Needs root for poweroff/reboot: wheel users get it without a password via
+# /etc/doas.conf and /etc/sudoers.d/abyss-power (only for this exact script).
+# ==============================================================================
+
+PATH=/usr/bin:/usr/sbin:/bin:/sbin
+SELF=/usr/local/bin/abyss-power
+LOG=/run/abyss-power.log
+action="${1:-}"
+
+log() { echo "$(date '+%F %T') $*" >>"$LOG" 2>/dev/null; echo "abyss-power: $*" >&2; }
+
+usage() {
+    echo "usage: abyss-power poweroff|reboot|suspend|hibernate|diagnose" >&2
+    exit 2
+}
+
+# Re-run this script as root without a password (doas/sudo rules allow exactly
+# this path); fall back to an interactive prompt when we are on a terminal.
+become_root() {
+    [ "$(id -u)" -eq 0 ] && return 0
+    if command -v doas >/dev/null 2>&1 && doas -n "$SELF" "$@" 2>/dev/null; then exit 0; fi
+    if command -v sudo >/dev/null 2>&1 && sudo -n "$SELF" "$@" 2>/dev/null; then exit 0; fi
+    if [ -t 0 ]; then
+        if command -v doas >/dev/null 2>&1 && [ -e /etc/doas.conf ]; then exec doas "$SELF" "$@"; fi
+        exec sudo "$SELF" "$@"
+    fi
+    echo "abyss-power: need root (no doas/sudo rule for $SELF)" >&2
+    exit 1
+}
+
+runit_pid1() { [ "$(cat /proc/1/comm 2>/dev/null)" = runit ]; }
+
+repair_runit_ctl() {
+    mkdir -p /run/runit
+    for f in stopit reboot; do
+        if [ "$(readlink "/etc/runit/$f" 2>/dev/null)" != "/run/runit/$f" ]; then
+            log "repairing /etc/runit/$f (was: $(ls -ld "/etc/runit/$f" 2>&1))"
+            rm -f "/etc/runit/$f" && ln -s "/run/runit/$f" "/etc/runit/$f" \
+                || log "could not relink /etc/runit/$f (read-only root?)"
+        fi
+        [ -e "/run/runit/$f" ] || install -m000 /dev/null "/run/runit/$f"
+    done
+}
+
+# Same effect as runit-init, written by hand: stopit +x tells runit to leave
+# stage 2; reboot +x (or not) picks reboot vs poweroff in stage 3.
+runit_signal() {
+    chmod 100 /etc/runit/stopit || return 1
+    if [ "$1" = reboot ]; then chmod 100 /etc/runit/reboot; else chmod 000 /etc/runit/reboot; fi || return 1
+    kill -CONT 1
+}
+
+manual_shutdown() {
+    log "falling back to a manual clean $1"
+    for s in /var/service/*; do [ -e "$s" ] && sv -w 15 force-stop "$s" >/dev/null 2>&1; done
+    pkill -TERM -v -u root >/dev/null 2>&1; sleep 2
+    sync
+    swapoff -a 2>/dev/null
+    umount -a -r -t nosysfs,noproc,nodevtmpfs,notmpfs,nodevpts,nocgroup2,noefivarfs 2>/dev/null
+    mount -o remount,ro / 2>/dev/null
+    sync
+    if [ "$1" = reboot ]; then reboot -f; else poweroff -f; fi
+}
+
+power_cycle() {  # poweroff | reboot
+    become_root "$1"
+    : >>"$LOG" 2>/dev/null
+    sync
+
+    if ! runit_pid1; then
+        log "PID 1 is $(cat /proc/1/comm 2>/dev/null), not runit: using $1 directly"
+        "$1"; exit
+    fi
+
+    # 1. normal path: when it works, runit is now stopping services; leave it be
+    if out=$("$1" 2>&1); then
+        log "$1 accepted by runit"
+        sleep 90
+        exit 0
+    fi
+    log "$1 failed: $out"
+
+    # 2. repair runit's control links, then signal runit ourselves
+    repair_runit_ctl
+    if runit_signal "$1"; then
+        log "signalled runit for $1"
+        sleep 20   # runit stage 3 normally finishes well before this
+        log "runit did not finish $1 in 20s"
+    else
+        log "could not write /etc/runit/stopit"
+    fi
+
+    # 3. last resort
+    manual_shutdown "$1"
+}
+
+sleep_state() {  # suspend | hibernate
+    if command -v loginctl >/dev/null 2>&1 && loginctl "$1" 2>/dev/null; then exit 0; fi
+    become_root "$1"
+    if [ "$1" = suspend ]; then zzz; else ZZZ; fi
+}
+
+diagnose() {
+    echo "== PID 1: $(cat /proc/1/comm 2>/dev/null)"
+    for f in /etc/runit/stopit /etc/runit/reboot; do
+        printf '%s -> %s\n' "$f" "$(readlink "$f" 2>/dev/null || echo '(not a symlink)')"
+        ls -ld "$f" 2>&1
+    done
+    echo "== /run/runit"; ls -la /run/runit 2>&1
+    echo "== mounts"; findmnt -no TARGET,FSTYPE,OPTIONS / /run 2>&1
+    echo "== kernel cmdline"; cat /proc/cmdline
+    echo "== runit control service"; ls -l /etc/runit/core-services/10-runit-control.sh 2>&1
+    if [ -r "$LOG" ]; then echo "== $LOG"; tail -n 20 "$LOG"; fi
+    if [ -r /run/abyss-boot.log ]; then echo "== boot log (errors)"; grep -iE 'error|fail|warn' /run/abyss-boot.log | tail -n 20; fi
+}
+
+case "$action" in
+    poweroff|reboot)  power_cycle "$action" ;;
+    suspend|hibernate) sleep_state "$action" ;;
+    diagnose)         diagnose ;;
+    *)                usage ;;
+esac
