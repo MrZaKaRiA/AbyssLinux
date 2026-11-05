@@ -13,9 +13,6 @@ configuration {
     drun-match-fields:   "name,generic,comment,keywords,categories,exec";
     font:                "JetBrainsMono Nerd Font 11";
     terminal:            "st";
-}";
-    font:                "JetBrainsMono Nerd Font 11";
-    terminal:            "st";
 }
 
 /* Theme: sizes in em so they follow the font (and Xft.dpi on HiDPI screens) */
