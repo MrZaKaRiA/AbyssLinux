@@ -71,10 +71,10 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
     # Always use the versioned builder script from the workspace.
     install -m 0755 "${SCRIPT_DIR}/builder/builder.sh" "${BUILDER_DIR}/rootfs/builder.sh"
 
-    echo "[*] Packing ext4 builder disk image (${BUILDER_DIR}/root.ext4)..."
-    rm -f "${BUILDER_DIR}/root.ext4"
-    /opt/homebrew/bin/mke2fs -q -t ext4 -d "${BUILDER_DIR}/rootfs" "${BUILDER_DIR}/root.ext4" 48G
-    trap 'rm -f "${BUILDER_DIR}/root.ext4"' EXIT
+    BUILDER_IMAGE=$(mktemp "${BUILDER_DIR}/root.ext4.XXXXXX")
+    trap 'rm -f "$BUILDER_IMAGE"' EXIT
+    echo "[*] Packing ext4 builder disk image (${BUILDER_IMAGE})..."
+    /opt/homebrew/bin/mke2fs -q -t ext4 -d "${BUILDER_DIR}/rootfs" "$BUILDER_IMAGE" 48G
 
     # Unknown KEY=value kernel parameters are passed to init as environment variables.
     VM_ENV="FORCE_REBUILD=${FORCE_REBUILD:-0} BUILD_X86_64=${BUILD_X86_64:-1}"
@@ -90,7 +90,7 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
         -kernel "${BUILDER_DIR}/vmlinux" \
         -append "root=/dev/sda rw console=ttyAMA0 init=/builder.sh ${VM_ENV}" \
         -device ich9-ahci,id=ahci \
-        -drive file="${BUILDER_DIR}/root.ext4",if=none,id=d0,format=raw \
+        -drive file="${BUILDER_IMAGE}",if=none,id=d0,format=raw \
         -device ide-hd,drive=d0,bus=ahci.0 \
         -netdev user,id=net0 \
         -device virtio-net-pci,netdev=net0 \
