@@ -1,0 +1,51 @@
+name: Build candidate ISO images
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'VERSION'
+      - 'builder/**'
+      - 'custom-overlay/**'
+      - 'void-mklive/**'
+      - '.github/workflows/build-iso.yml'
+permissions:
+  contents: read
+jobs:
+  build:
+    name: Build ${{ matrix.arch }} ISO
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [aarch64, x86_64]
+    container:
+      image: ghcr.io/void-linux/void-mklive:20250116R1
+      options: --privileged
+      volumes:
+        - /dev:/dev
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare build container
+        shell: sh
+        run: xbps-install -Syu xbps && xbps-install -yu
+      - name: Build image
+        shell: bash
+        run: bash builder/build-one-ci.sh '${{ matrix.arch }}'
+      - name: Check ISO structure and checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          file=$(find out -name '*.iso' -type f -print -quit)
+          test -n "$file" && test -s "$file"
+          xorriso -indev "$file" -find / -type f -exec lsdl -- > out/iso-files.txt
+          grep -i 'squashfs.img' out/iso-files.txt
+          grep -i 'EFI/BOOT/BOOT' out/iso-files.txt
+          (cd out && sha256sum *.iso > SHA256SUMS)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: abyss-iso-${{ matrix.arch }}
+          path: out/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7

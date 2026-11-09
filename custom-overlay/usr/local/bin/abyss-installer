@@ -33,12 +33,13 @@ accent '\033]4;5;#a855f7\007'
 
 if [ "$(id -u)" -eq 0 ]; then
     void-installer
-elif sudo -n true 2>/dev/null; then
-    sudo void-installer          # live user: passwordless sudo
 elif command -v doas >/dev/null 2>&1 && [ -e /etc/doas.conf ]; then
     doas void-installer
-else
+elif command -v sudo >/dev/null 2>&1; then
     sudo void-installer
+else
+    echo "abyss-installer: install doas or sudo to run the installer" >&2
+    exit 1
 fi
 rc=$?
 

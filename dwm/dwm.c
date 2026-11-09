@@ -198,6 +198,7 @@ static void focus(Client *c);
 static void focusin(XEvent *e);
 static void focusmon(const Arg *arg);
 static void focusstack(const Arg *arg);
+static int fitfloating(Client *c);
 static Atom getatomprop(Client *c, Atom prop);
 static void getgaps(Monitor *m, int *oh, int *ov, int *ih, int *iv, unsigned int *nc);
 static int getrootptr(int *x, int *y);
@@ -321,6 +322,7 @@ static Window root, wmcheckwin;
 
 /* configuration, allows nested code to access above variables */
 #include "config.h"
+#include "abyss-shortcuts.h"
 
 struct Pertag {
 	unsigned int curtag, prevtag; /* current and previous tag */
@@ -555,6 +557,7 @@ cleanup(void)
 		while (m->stack)
 			unmanage(m->stack, 0);
 	XUngrabKey(dpy, AnyKey, AnyModifier, root);
+	XDeleteProperty(dpy, root, abyss_shortcuts_atom);
 	while (mons)
 		cleanupmon(mons);
 	if (showsystray) {
@@ -680,6 +683,23 @@ configure(Client *c)
 	XSendEvent(dpy, c->win, False, StructureNotifyMask, (XEvent *)&ce);
 }
 
+/* Keep oversized floating dialogs usable when an application restores a size
+ * from a larger display. Leave normal and explicitly fullscreen windows alone. */
+int
+fitfloating(Client *c)
+{
+	Monitor *m = c->mon;
+	int maxw = MAX(1, m->ww - 2 * c->bw);
+	int maxh = MAX(1, m->wh - 2 * c->bw);
+	if (!c->isfloating || c->isfullscreen || (c->w <= maxw && c->h <= maxh))
+		return 0;
+	c->w = MIN(c->w, MAX(1, m->ww * 9 / 10 - 2 * c->bw));
+	c->h = MIN(c->h, MAX(1, m->wh * 9 / 10 - 2 * c->bw));
+	c->x = m->wx + (m->ww - WIDTH(c)) / 2;
+	c->y = m->wy + (m->wh - HEIGHT(c)) / 2;
+	return 1;
+}
+
 void
 configurenotify(XEvent *e)
 {
@@ -744,6 +764,8 @@ configurerequest(XEvent *e)
 				c->x = m->mx + (m->mw / 2 - WIDTH(c) / 2); /* center in x direction */
 			if ((c->y + c->h) > m->my + m->mh && c->isfloating)
 				c->y = m->my + (m->mh / 2 - HEIGHT(c) / 2); /* center in y direction */
+			if (fitfloating(c))
+				configure(c);
 			if ((ev->value_mask & (CWX|CWY)) && !(ev->value_mask & (CWWidth|CWHeight)))
 				configure(c);
 			if (ISVISIBLE(c))
@@ -1324,12 +1346,18 @@ grabkeys(void)
 		for (k = start; k <= end; k++)
 			for (i = 0; i < LENGTH(keys); i++)
 				/* skip modifier codes, we do that ourselves */
-				if (keys[i].keysym == syms[(k - start) * skip])
+				if (abyss_keysyms[i] != NoSymbol && abyss_keysyms[i] == syms[(k - start) * skip])
 					for (j = 0; j < LENGTH(modifiers); j++)
 						XGrabKey(dpy, k,
-							 keys[i].mod | modifiers[j],
+							 abyss_keymods[i] | modifiers[j],
 							 root, True,
 							 GrabModeAsync, GrabModeAsync);
+		for (k = start; k <= end; k++)
+			for (i = 0; i < abyss_appkey_count; i++)
+				if (abyss_appkeys[i].sym == syms[(k - start) * skip])
+					for (j = 0; j < LENGTH(modifiers); j++)
+						XGrabKey(dpy, k, abyss_appkeys[i].mod | modifiers[j], root, True,
+						         GrabModeAsync, GrabModeAsync);
 		XFree(syms);
 	}
 }
@@ -1374,10 +1402,17 @@ keypress(XEvent *e)
 	ev = &e->xkey;
 	keysym = XKeycodeToKeysym(dpy, (KeyCode)ev->keycode, 0);
 	for (i = 0; i < LENGTH(keys); i++)
-		if (keysym == keys[i].keysym
-		&& CLEANMASK(keys[i].mod) == CLEANMASK(ev->state)
+		if (keysym == abyss_keysyms[i]
+		&& CLEANMASK(abyss_keymods[i]) == CLEANMASK(ev->state)
 		&& keys[i].func)
 			keys[i].func(&(keys[i].arg));
+	for (i = 0; i < abyss_appkey_count; i++) {
+		if (keysym == abyss_appkeys[i].sym && CLEANMASK(abyss_appkeys[i].mod) == CLEANMASK(ev->state)) {
+			const char *cmd[] = { "/usr/local/bin/abyss-control-center", abyss_appkeys[i].action, NULL };
+			const Arg arg = { .v = cmd };
+			spawn(&arg);
+		}
+	}
 }
 
 void
@@ -1440,6 +1475,7 @@ manage(Window w, XWindowAttributes *wa)
 	grabbuttons(c, 0);
 	if (!c->isfloating)
 		c->isfloating = c->oldstate = trans != None || c->isfixed;
+	fitfloating(c);
 	if (c->isfloating)
 		XRaiseWindow(dpy, c->win);
 	attachaside(c);
@@ -1642,6 +1678,13 @@ propertynotify(XEvent *e)
 	Client *c;
 	Window trans;
 	XPropertyEvent *ev = &e->xproperty;
+
+	if (ev->window == root && ev->atom == abyss_reload_atom && ev->state != PropertyDelete) {
+		abyss_load_shortcuts();
+		grabkeys();
+		abyss_publish_shortcuts();
+		return;
+	}
 
 	if ((c = wintosystrayicon(ev->window))) {
 		if (ev->atom == XA_WM_NORMAL_HINTS) {
@@ -1847,7 +1890,11 @@ void
 runautostart(void)
 {
 	char *path;
+	const char *chooserinit[] = { "/usr/local/bin/abyss-file-chooser-init", NULL };
+	const Arg chooserarg = { .v = chooserinit };
 	const char *home = getenv("HOME");
+	if (access(chooserinit[0], X_OK) == 0)
+		spawn(&chooserarg);
 	if (home) {
 		if (asprintf(&path, "%s/.dwm/autostart.sh", home) > 0) {
 			if (access(path, X_OK) == 0) {
@@ -2147,7 +2194,11 @@ setup(void)
 		|LeaveWindowMask|StructureNotifyMask|PropertyChangeMask;
 	XChangeWindowAttributes(dpy, root, CWEventMask|CWCursor, &wa);
 	XSelectInput(dpy, root, wa.event_mask);
+	abyss_shortcuts_atom = XInternAtom(dpy, "_ABYSS_SHORTCUTS", False);
+	abyss_reload_atom = XInternAtom(dpy, "_ABYSS_SHORTCUTS_RELOAD", False);
+	abyss_load_shortcuts();
 	grabkeys();
+	abyss_publish_shortcuts();
 	focus(NULL);
 }
 

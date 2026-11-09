@@ -36,11 +36,9 @@ for f in "$ROOTFS"/etc/rc.conf "$ROOTFS"/etc/default/grub "$ROOTFS"/etc/dialogrc
     [ -f "$f" ] && chmod 0644 "$f"
 done
 # doas refuses a config that others can write; keep it root-only
-# Boot splash and login screen: plain readable files (the greeter runs as the
-# lightdm user, plymouth reads its theme while building the initramfs)
+# Login files are read by the LightDM greeter.
 for f in "$ROOTFS"/etc/lightdm/*.conf "$ROOTFS"/etc/lightdm/.session "$ROOTFS"/etc/lightdm/lightdm.conf.d/*.conf \
-         "$ROOTFS"/etc/plymouth/plymouthd.conf "$ROOTFS"/etc/dracut.conf.d/40-abyss-plymouth.conf \
-         "$ROOTFS"/usr/share/xsessions/abyss.desktop "$ROOTFS"/usr/share/plymouth/themes/abyss/*; do
+         "$ROOTFS"/usr/share/xsessions/abyss.desktop; do
     [ -f "$f" ] && chmod 0644 "$f"
 done
 [ -f "$ROOTFS/etc/doas.conf" ] && chmod 0400 "$ROOTFS/etc/doas.conf"
@@ -70,9 +68,9 @@ if [ -f "$OSR" ]; then
 fi
 echo "[abyss] version $ABYSS_VERSION"
 
-# Report (not fatal) what the Abyss desktop scripts expect to find
+# Report (not fatal) the minimal desktop dependencies expected in this image
 missing=""
-for c in dwm st dmenu slock tabbed wmname xmenu xdotool sxhkd setxkbmap xrdb xmodmap xev doas rofi lf vim mpv dunst plymouth lightdm lightdm-gtk-greeter; do
+for c in dwm st dmenu slock setxkbmap xrdb doas xrandr nmcli lightdm lightdm-gtk-greeter; do
     [ -x "$ROOTFS/usr/bin/$c" ] || missing="$missing $c"
 done
 [ -n "$missing" ] && echo "[abyss] WARNING: not in image:$missing (menu/keyboard fall back where possible)"

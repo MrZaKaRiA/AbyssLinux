@@ -2,8 +2,8 @@
 # ==============================================================================
 # abyss-control-center - the single top-right menu of Abyss Linux
 #
-# Opened by dwm when you click "Menu" on the status bar (ClkStatusText) or
-# press Super+Escape. Everything lives in one tree:
+# Opened by dwm when you click the status bar or press Super+Escape. The
+# dmenu-first tree keeps the installed desktop small:
 #
 #   user@host · uptime                       (header: opens System info)
 #   Terminal · Files · Web browser           (quick launch)
@@ -12,15 +12,15 @@
 #   System        monitor, info, update, disks, services, power diagnostics
 #   Session       lock, suspend, hibernate, log out, restart, shut down
 #
-# Uses xmenu (popup with nested submenus and icons) anchored to the top-right
-# corner; falls back to a flat, searchable dmenu list when xmenu is missing.
+# Uses the included dmenu and Abyss shell scripts; optional apps appear after
+# the user installs them.
 #
 #   abyss-control-center            open the menu
-#   abyss-control-center <action>   run one action directly (used by sxhkd)
+#   abyss-control-center <action>   run one action directly
 #   abyss-control-center --check    list missing optional dependencies
 # ==============================================================================
 
-PATH="/usr/local/bin:${PATH}"
+PATH="/usr/local/bin:${HOME}/.local/bin:${PATH}"
 WALLPAPER=/usr/share/backgrounds/abyss/abyss-wallpaper.jpg
 # Sizes at 96 dpi, scaled by Xft.dpi (set by ~/.xinitrc for HiDPI screens)
 DPI=$(xrdb -query 2>/dev/null | awk '$1 == "Xft.dpi:" {print int($2); exit}')
@@ -34,7 +34,12 @@ NB="#0d0b18" NF="#f3e8ff" SB="#a855f7" SF="#090514"
 has() { command -v "$1" >/dev/null 2>&1; }
 
 notify() {
-    if has notify-send; then notify-send -a "Abyss" "$1" "${2:-}"; else echo "$1 ${2:-}" >&2; fi
+    if has notify-send && notify-send -a "Abyss" "$1" "${2:-}"; then return; fi
+    if [ -n "${DISPLAY:-}" ] && has dmenu; then
+        printf '%s\n' "${2:-$1}" | dmenu_theme -p "$1" >/dev/null
+    else
+        echo "$1 ${2:-}" >&2
+    fi
 }
 
 # Run the first available command of a list ("cmd args" strings), detached.
@@ -82,8 +87,7 @@ power() {
     setsid -f sh -c "abyss-power $1 || notify-send -u critical -a Abyss 'Could not $1' 'Run: abyss-power diagnose'" >/dev/null 2>&1
 }
 
-# Top-right anchor. If the pointer is on the bar (menu was clicked) xmenu opens
-# at the pointer; otherwise (keyboard) pin it under the right end of the bar.
+# Top-right anchor for optional xmenu installations; dmenu does not use this.
 menu_pos() {
     if has xdotool; then
         eval "$(xdotool getmouselocation --shell 2>/dev/null)"
@@ -104,10 +108,10 @@ header() {
 }
 
 # ------------------------------------------------------------------------------
-# Menu tree (xmenu format: TAB-indented submenus, "Label<TAB>action",
+# Menu tree (TAB-indented submenus, "Label<TAB>action",
 # an empty line is a separator). Labels use Nerd Font glyphs.
 # ------------------------------------------------------------------------------
-menu_tree() {
+menu_tree_raw() {
     header
     echo
     # Live ISO only: the installer goes first
@@ -117,7 +121,10 @@ menu_tree() {
     cat <<'EOF'
   Terminal	term
   Files	files
+  Images	images
   Web browser	browser
+  Take screenshot	screenshot
+  Select screenshot area	screenshot-area
 󰀻  Applications
 EOF
     has abyss-apps && abyss-apps --xmenu 1
@@ -125,39 +132,40 @@ EOF
 	  Search all apps…	apps
 	  Run a command…	run
 
+󰏖  Software
+	󰏖  Install software	software
+	  Search Void packages	package-search
+	󰚰  Update system	update
+
   Settings
 	󰖩  Network
 		󰖩  Connect to Wi-Fi / network	net-tui
-		󰛳  Edit connections	net-gui
-		󰀂  Network icon in the bar on/off	net-applet
 	󰕾  Sound
+		󰕾  Install audio support	install-audio
 		󰕾  Volume mixer	audio-gui
 		󰝝  Volume up 5%	vol-up
 		󰝞  Volume down 5%	vol-down
 		󰝟  Mute / unmute	vol-mute
 		󰝚  Audio devices (terminal)	audio-tui
 	󰍹  Display
-		󰍹  Arrange displays	display-gui
+		󰍹  Resolution and refresh rate	display-gui
 		󰍺  Detect displays again	display-auto
+		󰖨  OLED screen blanking: toggle 10 min	oled-toggle
 		  Text size: normal	dpi-96
 		  Text size: large	dpi-144
 		  Text size: extra large	dpi-192
 	󰌌  Keyboard
-		󰘳  Super key: swap with Left Alt	kbd-swap
+		󰌌  First-run setup / keyboard layout	setup
+		󰘳  __KEYBOARD_SWAP_LABEL__	kbd-swap
 		󰌓  Test what keys send	kbd-test
 		󰋖  Current layout and modifiers	kbd-status
-	󰏘  Appearance
-		󰸉  Reset wallpaper	wallpaper
-		  GTK theme and icons	gtk-settings
+		󰌌  View and edit shortcuts	shortcuts
   System
 	󰄨  System monitor	monitor
 	  About this computer	info
-	󰚰  Update system	update
 	󰋊  Disks and free space	disks
 	  Running services	services
-	󰣀  SSH manager	ssh
 	  Power diagnostics	power-diag
-	󰌌  Keyboard shortcuts	shortcuts
 
   Session
 	  Lock screen	lock
@@ -167,6 +175,11 @@ EOF
 	󰜉  Restart	reboot
 	  Shut down	poweroff
 EOF
+}
+
+menu_tree() {
+    swap_label=$(abyss-keyboard --swap-label 2>/dev/null || printf 'Swap Left Alt ↔ Super (Win/Cmd)')
+    menu_tree_raw | sed "s|__KEYBOARD_SWAP_LABEL__|$swap_label|g"
 }
 
 # Flatten the tree for dmenu: "Settings › Keyboard › Test what keys send<TAB>kbd-test"
@@ -197,7 +210,7 @@ choose() {
         sel=$(menu_flat | cut -f1 | dmenu_theme -p "Abyss")
         [ -n "$sel" ] && menu_flat | awk -F'\t' -v s="$sel" '$1 == s {print $2; exit}'
     else
-        notify "Abyss menu" "Install xmenu or dmenu"
+        notify "Abyss menu" "dmenu is not installed"
     fi
 }
 
@@ -211,15 +224,42 @@ set_dpi() {
 act() {
     case "$1" in
         install)      setsid -f abyss-installer >/dev/null 2>&1 ;;
+        software)     setsid -f abyss-software >/dev/null 2>&1 ;;
+        package-search) setsid -f abyss-software --search >/dev/null 2>&1 ;;
+        setup)        setsid -f abyss-setup >/dev/null 2>&1 ;;
         term)         first "st" "alacritty" ;;
+        alacritty)    if has alacritty; then first "alacritty"
+                      else notify "Alacritty is not installed" "Opening the default terminal instead."; act term; fi ;;
         files)        first "thunar" "pcmanfm" "nautilus" || act lf ;;
+        images)       if has nsxiv; then
+                          pictures="$HOME/Pictures"
+                          if has xdg-user-dir; then
+                              configured=$(xdg-user-dir PICTURES 2>/dev/null)
+                              [ -n "$configured" ] && [ "$configured" != "$HOME" ] && pictures=$configured
+                          fi
+                          mkdir -p "$pictures" || { notify "Images" "Could not open the Pictures folder."; return 1; }
+                          setsid -f nsxiv -t -r "$pictures" >/dev/null 2>&1
+                      else notify "Image viewer unavailable" "Update Abyss or install nsxiv from the Void repository."; fi ;;
         lf)           if has lf; then term "Files" lf; else term "Files" sh -c 'ls -la; exec bash'; fi ;;
         vim)          if has vim; then term "Editor" vim; else first "code"; fi ;;
-        browser)      if has firefox || has chromium || has flatpak; then
-                          first "firefox" "chromium" "flatpak run com.google.Chrome"
+        browser)      if has firefox || has chromium || has google-chrome-stable || has google-chrome || has brave-browser || has vivaldi; then
+                          first "firefox" "chromium" "google-chrome-stable" "google-chrome" "brave-browser" "vivaldi"
+                      elif has flatpak && flatpak info org.mozilla.firefox >/dev/null 2>&1; then
+                          setsid -f flatpak run org.mozilla.firefox >/dev/null 2>&1
+                      elif has flatpak && flatpak info com.google.Chrome >/dev/null 2>&1; then
+                          setsid -f flatpak run com.google.Chrome >/dev/null 2>&1
                       else
-                          notify "No web browser installed" "Install one in a terminal: i firefox"
+                          notify "No browser is installed" "Open Software → Install software to add Firefox or Chrome."
                       fi ;;
+        screenshot)   abyss-screenshot --screen ;;
+        screenshot-area) abyss-screenshot --area ;;
+        code)         if [ -x "$HOME/.local/opt/vscode/code" ]; then
+                          setsid -f "$HOME/.local/opt/vscode/code" >/dev/null 2>&1
+                      elif has code; then first "code"
+                      elif has flatpak && flatpak info com.visualstudio.code >/dev/null 2>&1; then setsid -f flatpak run com.visualstudio.code >/dev/null 2>&1
+                      else notify "VS Code is not installed" "Open Software → Install software to add it."; fi ;;
+        virt)         if has virt-manager; then first "virt-manager"
+                      else notify "Virtual Machine Manager is not installed" "Open Software → Install software to add QEMU and virt-manager."; fi ;;
         apps)         setsid -f abyss-launcher drun ;;
         run)          setsid -f abyss-launcher run ;;
         exec:*)       setsid -f sh -c "${1#exec:}" >/dev/null 2>&1 ;;
@@ -229,14 +269,22 @@ act() {
         net-gui)      first "nm-connection-editor" || act net-tui ;;
         net-applet)   if pgrep -u "$(id -u)" -x nm-applet >/dev/null; then pkill -u "$(id -u)" -x nm-applet
                       else first "nm-applet"; fi ;;
+        install-audio) setsid -f abyss-software --install 'pipewire pipewire-pulse wireplumber pavucontrol' >/dev/null 2>&1 ;;
         audio-gui)    first "pavucontrol" || act audio-tui ;;
         audio-tui)    if has alsamixer; then term "Audio" alsamixer
                       else term_hold "Audio" 'wpctl status'; fi ;;
-        vol-up)       wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ 5%+ ;;
-        vol-down)     wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%- ;;
-        vol-mute)     wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle ;;
-        display-gui)  first "arandr" || term_hold "Displays" 'xrandr' ;;
+        vol-up)       if has wpctl; then wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ 5%+; else notify "Audio is not installed" "Install PipeWire from Install software."; fi ;;
+        vol-down)     if has wpctl; then wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-; else notify "Audio is not installed" "Install PipeWire from Install software."; fi ;;
+        vol-mute)     if has wpctl; then wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle; else notify "Audio is not installed" "Install PipeWire from Install software."; fi ;;
+        display-gui)  abyss-display ;;
         display-auto) xrandr --auto && notify "Displays" "Outputs re-detected" ;;
+        oled-toggle)  conf="$HOME/.config/abyss/oled-blanking"; mkdir -p "${conf%/*}"
+                      if [ "$(cat "$conf" 2>/dev/null)" = 1 ]; then
+                          echo 0 > "$conf"; xset s off; xset -dpms; notify "OLED blanking off" "The display will stay on while idle."
+                      else
+                          echo 1 > "$conf"; xset s 600 600; xset +dpms; xset dpms 600 600 600
+                          notify "OLED blanking on" "The screen blanks after 10 minutes idle; move the mouse or press a key to wake it."
+                      fi ;;
         dpi-96|dpi-144|dpi-192) set_dpi "${1#dpi-}" ;;
         kbd-toggle)   abyss-keyboard --toggle ;;
         kbd-swap)     abyss-keyboard --swap-super ;;
@@ -255,7 +303,7 @@ act() {
         services)     term_hold "Services" 'sv status /var/service/* 2>/dev/null | sed "s|/var/service/||"' ;;
         power-diag)   term_hold "Power diagnostics" 'abyss-power diagnose' ;;
         ssh)          first "dmenu-ssh" ;;
-        shortcuts)    term "Abyss Shortcuts" abyss-shortcuts ;;
+        shortcuts)    setsid -f abyss-shortcut-editor >/dev/null 2>&1 ;;
 
         lock)         first "slock" ;;
         suspend)      power suspend ;;
@@ -271,7 +319,7 @@ act() {
 
 check() {
     missing=""
-    for c in xmenu xdotool dmenu rofi lf vim mpv dunst st nmtui pavucontrol arandr xrandr feh slock loginctl notify-send setxkbmap wpctl abyss-power abyss-apps; do
+    for c in dmenu st dwm slock xrandr setxkbmap xbps-query xbps-install abyss-power abyss-software abyss-setup abyss-display; do
         has "$c" || missing="$missing $c"
     done
     if [ -n "$missing" ]; then echo "missing:$missing"; return 1; fi

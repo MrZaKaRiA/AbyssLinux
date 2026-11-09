@@ -1,0 +1,199 @@
+#!/bin/sh
+# Per-user editor for dwm system shortcuts and application launch shortcuts.
+PATH="/usr/local/bin:$PATH"
+helper=abyss-key-capture
+dir="${XDG_CONFIG_HOME:-$HOME/.config}/abyss"
+conf="$dir/shortcuts.conf"
+font='JetBrainsMono Nerd Font:size=10'
+choose() { dmenu -i -c -l 24 -fn "$font" -nb '#0d0b18' -nf '#f3e8ff' -sb '#a855f7' -sf '#090514' "$@"; }
+message() { printf '%s\n' "$1" | choose -p "${2:-Shortcuts}" >/dev/null; }
+
+bindings() {
+    "$helper" --list 2>/dev/null || {
+        message 'Log out and back in after updating Abyss to activate the shortcut editor.' 'Shortcut editor unavailable'
+        return 1
+    }
+}
+
+# Render modifiers without requiring non-POSIX awk bitwise functions.
+render_rows() {
+    awk -F '\t' '
+    function chord(m,k, r) {
+        if (k == "-") return "Disabled"
+        r=""; if (int(m/64)%2) r=r "Super+"; if (int(m/8)%2) r=r "Alt+";
+        if (int(m/4)%2) r=r "Ctrl+"; if (int(m)%2) r=r "Shift+"; return r k
+    }
+    $1 == "B" { printf "%s (%s)  —  %s\tB\t%s\t%s\t%s\t%s\n", $6, chord($2,$3), chord($4,$5), $2,$3,$4,$5 }
+    $1 == "A" { printf "%s  —  %s\tA\t%s\t%s\t%s\n", $5, chord($3,$4), $2,$3,$4 }
+    '
+}
+
+select_row() {
+    rows=$(bindings | render_rows) || return 1
+    case "$1" in B) rows=$(printf '%s\n' "$rows" | awk -F '\t' '$2 == "B"') ;; A) rows=$(printf '%s\n' "$rows" | awk -F '\t' '$2 == "A"') ;; esac
+    [ -n "$rows" ] || { message 'No shortcuts in this section.'; return 1; }
+    selected=$(printf '%s\n' "$rows" | cut -f1 | choose -p "$2") || return 1
+    [ -n "$selected" ] || return 1
+    row=$(printf '%s\n' "$rows" | awk -F '\t' -v s="$selected" '$1 == s {print; exit}')
+    [ -n "$row" ]
+}
+
+capture_key() {
+    mkdir -p "$dir" || return 1
+    capture_file=$(mktemp "$dir/.capture.XXXXXX") || return 1
+    st -t 'Press a shortcut' -e sh -c '
+        printf "Press the new key combination. Escape cancels.\n"
+        "$1" --capture > "$2"
+    ' sh "$helper" "$capture_file"
+    IFS="$(printf '\t')" read -r newmod newkey < "$capture_file"
+    rm -f "$capture_file"
+    case "$newmod:$newkey" in *[!0-9A-Za-z_:.-]*|:*|*:) return 1 ;; esac
+    [ -n "$newkey" ] || return 1
+    # Plain typing keys would otherwise be intercepted in every application.
+    if [ $((newmod & 76)) -eq 0 ]; then
+        case "$newkey" in
+            [A-Za-z0-9]|space|Return|Tab|BackSpace|comma|period|slash|semicolon|apostrophe|minus|equal|bracketleft|bracketright|backslash|grave)
+                message 'Use Super, Alt, or Ctrl with typing keys so normal typing keeps working.' 'Choose another shortcut'
+                return 1 ;;
+        esac
+    fi
+}
+
+conflict() {
+    # Exclude the action being edited; all other live dwm bindings are reserved.
+    other=$(bindings | awk -F '\t' -v m="$newmod" -v k="$newkey" -v kind="$kind" -v id1="$id1" -v id2="$id2" '
+        $1 == "B" && $4 == m && $5 == k && !(kind == "B" && $2 == id1 && $3 == id2) {print $6; exit}
+        $1 == "A" && $3 == m && $4 == k && !(kind == "A" && $2 == id1) {print $5; exit}
+    ') || return 1
+    if [ -n "$other" ]; then message "That combination is already used by: $other" 'Shortcut already in use'; return 1; fi
+    if [ "$newmod" = "$currentmod" ] && [ "$newkey" = "$currentkey" ]; then return 0; fi
+    "$helper" --probe "$newmod" "$newkey" >/dev/null 2>&1
+    case $? in
+        0) return 0 ;;
+        3) message 'Another program has already taken that combination.' 'Shortcut already in use' ;;
+        *) message 'This key combination is not available on the current keyboard.' 'Could not use shortcut' ;;
+    esac
+    return 1
+}
+
+save_record() {
+    operation=$1
+    mkdir -p "$dir" || return 1
+    old=$(mktemp "$dir/.old-shortcuts.XXXXXX") || return 1
+    next=$(mktemp "$dir/.new-shortcuts.XXXXXX") || { rm -f "$old"; return 1; }
+    [ ! -f "$conf" ] || cat "$conf" > "$old"
+    if [ "$kind" = B ]; then
+        awk -F '\t' -v a="$id1" -v b="$id2" '!($1 == "B" && $2 == a && $3 == b)' "$old" > "$next"
+        [ "$operation" != set ] || printf 'B\t%s\t%s\t%s\t%s\n' "$id1" "$id2" "$newmod" "$newkey" >> "$next"
+    else
+        awk -F '\t' -v a="$id1" '!($1 == "A" && $2 == a)' "$old" > "$next"
+        [ "$operation" != set ] || printf 'A\t%s\t%s\t%s\t%s\t%s\n' "$id1" "$newmod" "$newkey" "$app_label" "$app_action" >> "$next"
+    fi
+    chmod 600 "$next" && mv "$next" "$conf" || { rm -f "$old" "$next"; return 1; }
+    "$helper" --reload || { cp "$old" "$conf"; rm -f "$old"; return 1; }
+    sleep 1
+    updated=$("$helper" --list 2>/dev/null)
+    if [ "$kind" = B ]; then
+        if [ "$operation" = set ]; then expectedmod=$newmod; expectedkey=$newkey; else expectedmod=$id1; expectedkey=$id2; fi
+        printf '%s\n' "$updated" | awk -F '\t' -v a="$id1" -v b="$id2" -v m="$expectedmod" -v k="$expectedkey" '$1 == "B" && $2 == a && $3 == b && $4 == m && $5 == k {ok=1} END {exit !ok}'
+    else
+        if [ "$operation" = set ]; then
+            printf '%s\n' "$updated" | awk -F '\t' -v a="$id1" -v m="$newmod" -v k="$newkey" '$1 == "A" && $2 == a && $3 == m && $4 == k {ok=1} END {exit !ok}'
+        else
+            printf '%s\n' "$updated" | awk -F '\t' -v a="$id1" '$1 == "A" && $2 == a {found=1} END {exit found}'
+        fi
+    fi
+    if [ "$?" -ne 0 ]; then
+        cp "$old" "$conf"; "$helper" --reload; rm -f "$old"
+        message 'The window manager rejected the change. The previous settings were restored.' 'Shortcut not saved'
+        return 1
+    fi
+    rm -f "$old"
+    message 'Shortcut updated.'
+}
+
+edit_system() {
+    select_row B 'System shortcuts' || return
+    id1=$(printf '%s\n' "$row" | cut -f3); id2=$(printf '%s\n' "$row" | cut -f4)
+    currentmod=$(printf '%s\n' "$row" | cut -f5); currentkey=$(printf '%s\n' "$row" | cut -f6); kind=B
+    choice=$(printf '%s\n' 'Change shortcut' 'Disable shortcut' 'Restore default' 'Cancel' | choose -p "$selected") || return
+    case "$choice" in
+        'Change shortcut') capture_key && conflict && save_record set ;;
+        'Disable shortcut') newmod=0; newkey=-; save_record set ;;
+        'Restore default') newmod=$id1; newkey=$id2; conflict && save_record remove ;;
+    esac
+}
+
+edit_app() {
+    select_row A 'Application shortcuts' || return
+    id1=$(printf '%s\n' "$row" | cut -f3); id2=; currentmod=$(printf '%s\n' "$row" | cut -f4); currentkey=$(printf '%s\n' "$row" | cut -f5); kind=A
+    record=$(bindings | awk -F '\t' -v id="$id1" '$1 == "A" && $2 == id {print; exit}') || return
+    app_label=$(printf '%s\n' "$record" | cut -f5); app_action=$(printf '%s\n' "$record" | cut -f6-)
+    choice=$(printf '%s\n' 'Change shortcut' 'Remove shortcut' 'Cancel' | choose -p "$selected") || return
+    case "$choice" in
+        'Change shortcut') capture_key && conflict && save_record set ;;
+        'Remove shortcut') save_record remove ;;
+    esac
+}
+
+add_app() {
+    apps=$(abyss-apps --list) || return
+    [ -n "$apps" ] || { message 'No installed applications found.'; return; }
+    selected=$(printf '%s\n' "$apps" | cut -f1 | choose -p 'Choose an application') || return
+    [ -n "$selected" ] || return
+    app_action=$(printf '%s\n' "$apps" | awk -F '\t' -v s="$selected" '$1 == s {sub(/^[^\t]*\t/, ""); print; exit}')
+    case "$app_action" in exec:*|term-exec:*) ;; *) return ;; esac
+    app_label=$selected; kind=A; id1="app-$(date +%s)-$$"; id2=; currentmod=; currentkey=
+    capture_key && conflict && save_record set
+}
+
+restore_all() {
+    choice=$(printf '%s\n' 'Cancel' 'Restore defaults' | choose -p 'Remove all custom shortcuts?') || return
+    [ "$choice" = 'Restore defaults' ] || return
+    current=$(bindings) || return
+    # A freed default may have since been grabbed by another application.
+    # Keys already owned by dwm can be safely released and re-grabbed by dwm.
+    while IFS="$(printf '\t')" read -r type originalmod originalkey currentmod currentkey label; do
+        [ "$type" = B ] || continue
+        owned=$(printf '%s\n' "$current" | awk -F '\t' -v m="$originalmod" -v k="$originalkey" '
+            ($1 == "B" && $4 == m && $5 == k) || ($1 == "A" && $3 == m && $4 == k) {print "yes"; exit}
+        ')
+        if [ -z "$owned" ] && ! "$helper" --probe "$originalmod" "$originalkey" >/dev/null 2>&1; then
+            message "The default combination for $label is unavailable. Close the program using it and try again." 'Could not restore defaults'
+            return
+        fi
+    done <<EOF
+$current
+EOF
+    mkdir -p "$dir" || return
+    old=$(mktemp "$dir/.old-shortcuts.XXXXXX") || return
+    next=$(mktemp "$dir/.new-shortcuts.XXXXXX") || { rm -f "$old"; return; }
+    [ ! -f "$conf" ] || cat "$conf" > "$old"
+    chmod 600 "$next" && mv "$next" "$conf" || { rm -f "$old" "$next"; return; }
+    "$helper" --reload
+    sleep 1
+    updated=$("$helper" --list 2>/dev/null)
+    if ! printf '%s\n' "$updated" | awk -F '\t' '
+        $1 == "B" { seen=1; if ($2 != $4 || $3 != $5) bad=1 }
+        $1 == "A" { bad=1 }
+        END { exit !(seen && !bad) }
+    '; then
+        cp "$old" "$conf"; "$helper" --reload; rm -f "$old"
+        message 'The previous settings were restored because defaults could not be applied.' 'Could not restore defaults'
+        return
+    fi
+    rm -f "$old"
+    message 'Default shortcuts restored.'
+}
+
+while :; do
+    bindings >/dev/null || exit 1
+    choice=$(printf '%s\n' 'System shortcuts' 'Application shortcuts' 'Add application shortcut' 'Restore all defaults' 'Done' | choose -p 'Keyboard shortcuts') || exit 0
+    case "$choice" in
+        'System shortcuts') edit_system ;;
+        'Application shortcuts') edit_app ;;
+        'Add application shortcut') add_app ;;
+        'Restore all defaults') restore_all ;;
+        *) exit 0 ;;
+    esac
+done

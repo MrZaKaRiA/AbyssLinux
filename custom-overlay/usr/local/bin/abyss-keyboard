@@ -4,14 +4,15 @@
 #
 #   abyss-keyboard               apply ~/.config/abyss/keyboard.conf (run by .xinitrc)
 #   abyss-keyboard --toggle      switch layout group (Alt+Shift does the same)
-#   abyss-keyboard --swap-super  toggle "Left Alt acts as Super" and save it
+#   abyss-keyboard --swap-super  toggle Left Alt / Super (Win/Cmd) and save it
+#   abyss-keyboard --swap-label print the current modifier-swap state
 #   abyss-keyboard --status      print layout, options and the modifier map
 #   abyss-keyboard --test        open xev to see what each key really sends
 #
 # Why the Super swap exists: VM viewers on macOS / Windows hosts (Lumen, UTM,
 # VirtualBox, ...) often keep Cmd / Win for the host, so dwm never sees Mod4
-# and Super+key arrives as a plain key. SWAP_SUPER=1 turns Left Alt into
-# Super (and Left Super into Alt). Default is off; use it when the VM viewer
+# and Super+key arrives as a plain key. SWAP_SUPER=1 swaps Left Alt with Super
+# (Windows on PC keyboards and Command on many Macs). Default is off; use it when the VM viewer
 # does not forward Cmd/Win (in Lumen: enable "Capture system keys" instead).
 # ==============================================================================
 
@@ -81,12 +82,20 @@ case "${1:-}" in
         if swap_active; then SWAP_SUPER=0; else SWAP_SUPER=1; fi
         save_swap "$SWAP_SUPER"
         apply
-        if swap_active; then notify "Left Alt now works as Super (Mod4)"
-        else notify "Super is back on the Win/Cmd key"; fi
+        if swap_active; then notify "Modifier keys swapped" "Left Alt ↔ Super (Windows / Command). This setting is saved for future logins."
+        else notify "Standard modifiers restored" "Super stays on the Windows / Command key; Left Alt stays Alt."; fi
+        ;;
+    --swap-label)
+        if swap_active; then
+            printf 'Super mapping: Left Alt (Win/Cmd ↔ Alt swap ON)\n'
+        else
+            printf 'Super mapping: Win/Cmd (standard; Left Alt stays Alt)\n'
+        fi
         ;;
     --status)
         setxkbmap -query 2>/dev/null
-        swap_active && echo "super:   Left Alt (swapped)" || echo "super:   Win/Cmd key"
+        swap_active && echo "Super (Windows / Command): Left Alt (swapped)" || echo "Super (Windows / Command): Windows / Command key"
+        swap_active && echo "Left Alt: Super" || echo "Left Alt: Alt"
         has xmodmap && xmodmap -pm | awk '/^mod1|^mod4/'
         ;;
     --test)

@@ -1,0 +1,14 @@
+/* LightDM GTK greeter rules; these widget IDs/classes are greeter-only. */
+#login_window #user_combobox {
+    min-width: 22em;
+}
+#login_window .entry {
+    min-width: 22em;
+    min-height: 2.2em;
+    padding: 0.35em 0.7em;
+}
+#login_window .button {
+    min-width: 8em;
+    min-height: 2em;
+    padding: 0.35em 0.8em;
+}

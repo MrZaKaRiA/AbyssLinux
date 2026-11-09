@@ -5,6 +5,7 @@
 #   abyss-apps --xmenu [DEPTH]   xmenu lines: one submenu per category, every
 #                                app with its icon and what it is
 #                                ("Thunar · File Manager"), indented DEPTH tabs
+#   abyss-apps --list            searchable dmenu rows: label<TAB>launch action
 #   abyss-apps --refresh         rebuild the cache now
 #
 # Reads the .desktop files of the system, the user and Flatpak, skips hidden
@@ -95,16 +96,16 @@ build() {
         printf "%s\t%s\t%s\t%s\n", cat, tolower(name), (ic != "" ? "IMG:" ic "\t" : "") label, cmd
     }
     function category(c) {
-        if (c ~ /(^|;)Game(;|$)/)                         return "08|Games"
-        if (c ~ /(^|;)Development(;|$)/)                  return "03|Development"
-        if (c ~ /(^|;)Graphics(;|$)/)                     return "04|Graphics"
-        if (c ~ /(^|;)(AudioVideo|Audio|Video)(;|$)/)     return "05|Sound & Video"
-        if (c ~ /(^|;)Network(;|$)/)                      return "01|Internet"
-        if (c ~ /(^|;)Office(;|$)/)                       return "02|Office"
-        if (c ~ /(^|;)(Education|Science)(;|$)/)          return "07|Education & Science"
-        if (c ~ /(^|;)Settings(;|$)/)                     return "10|Settings"
-        if (c ~ /(^|;)System(;|$)/)                       return "09|System"
-        if (c ~ /(^|;)Utility(;|$)/)                      return "06|Accessories"
+        if (c ~ /(^|;)(Network|WebBrowser|Email|Chat)(;|$)/) return "01|Internet"
+        if (c ~ /(^|;)(Office|Calendar|ContactManagement)(;|$)/) return "02|Office"
+        if (c ~ /(^|;)(AudioVideo|Audio|Video|Player|Recorder)(;|$)/) return "03|Sound & Video"
+        if (c ~ /(^|;)(Graphics|Photography|3DGraphics|Scanning)(;|$)/) return "04|Graphics"
+        if (c ~ /(^|;)(Education|Science|Teaching)(;|$)/) return "05|Education"
+        if (c ~ /(^|;)(Development|IDE|Building|Debugger|GUIDesigner)(;|$)/) return "06|Development"
+        if (c ~ /(^|;)(Game|ActionGame|AdventureGame|ArcadeGame|BoardGame|Emulator)(;|$)/) return "07|Games"
+        if (c ~ /(^|;)(Settings|DesktopSettings|HardwareSettings)(;|$)/) return "08|Settings"
+        if (c ~ /(^|;)(System|TerminalEmulator|PackageManager)(;|$)/) return "09|System"
+        if (c ~ /(^|;)(Utility|TextEditor|Accessibility|FileManager)(;|$)/) return "10|Accessories"
         return "11|Other"
     }
     function icon_path(i) {
@@ -159,7 +160,7 @@ category_glyph() {
         Graphics) printf '\363\260\217\230' ;;          # palette
         "Sound & Video") printf '\363\260\235\232' ;;   # music
         Accessories) printf '\357\202\255' ;;           # wrench
-        "Education & Science") printf '\363\260\221\264' ;; # school
+        Education) printf '\363\260\221\264' ;;        # school
         Games) printf '\363\260\212\227' ;;             # gamepad
         System) printf '\357\204\240' ;;                # terminal
         Settings) printf '\357\200\223' ;;              # cog
@@ -182,5 +183,20 @@ xmenu_out() {
 case "${1:-}" in
     --refresh) build ;;
     --xmenu)   stale && build; xmenu_out "${2:-0}" ;;
-    *)         echo "usage: abyss-apps --xmenu [DEPTH] | --refresh" >&2; exit 2 ;;
+    --list)
+        stale && build
+        awk -F '\t' '
+            /^[^\t]/ { category = $0; next }
+            NF >= 3 {
+                if ($2 ~ /^IMG:/) { label = $3; action = $4 }
+                else              { label = $2; action = $3 }
+                if (label != "" && action != "") {
+                    # Keep repeated display names distinct when categories differ.
+                    key = label "\034" category
+                    if (!seen[key]++) print label "  ·  " category "\t" action
+                }
+            }
+        ' "$CACHE"
+        ;;
+    *)         echo "usage: abyss-apps --xmenu [DEPTH] | --list | --refresh" >&2; exit 2 ;;
 esac

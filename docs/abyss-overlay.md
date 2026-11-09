@@ -1,87 +1,48 @@
 # Abyss overlay additions
 
-Everything below lives in `custom-overlay/` (copied into the ISO by `mklive -I`)
-or `builder/` (build-time hooks). The suckless tools are **not** in the overlay: the
-ISO installs `abyss-dwm`, `abyss-st`, `abyss-dmenu`, `abyss-slock`, `abyss-tabbed` and
-`abyss-wmname` and the GTK/icon theme `abyss-theme` from the signed [Abyss PMR](https://github.com/MrZaKaRiA/AbyssLinuxPMR)
-(see "Suckless packages" below).
-The builder deletes the old ISO before copying the new one, so a VM that has it open keeps the old file.
+The ISO installs the Void base and Xorg runtime, the LightDM greeter, networking,
+installer dependencies, and Abyss's upstream-based suckless packages. General
+applications are installed on demand through XBPS or official vendor downloads.
 
-## Files
+## Main desktop scripts
 
-| Target path in the ISO | Mode | Purpose |
-|---|---|---|
-| `/usr/local/bin/abyss-control-center` | 0755 | The single top-right menu (xmenu, nested submenus; dmenu fallback). dwm already runs it on status-bar click and Super+Escape. Sizes follow Xft.dpi. On the live ISO the first entry is *Install Abyss Linux*. `--check` lists missing deps. |
-| `/usr/local/bin/abyss-installer` | 0755 | Opens void-installer as root in its own st window with a large font (`size=14`, scaled by Xft.dpi) and the purple accent. |
-| `/usr/bin/void-installer` | 0755 | Upstream installer; title is "Abyss Linux installer (<build date>)", exports `DIALOGRC=/etc/dialogrc`, resets the installed tty1 to a normal login prompt (the live autologin user `anon` is deleted), removes xmirror before dialog. |
-| `/etc/dialogrc` | 0644 | Dark, high-contrast dialog theme: light text on black, purple highlight, no shadow. |
-| `/usr/local/bin/dwm-statusbar` | 0755 | NET ↓/↑ real transfer speed of physical interfaces (`offline` without network), CPU % + temperature (hidden without a sensor), RAM, SSD used/size of `/` (red ≥ 90 %), clock, purple ` Menu ` button. |
-| `/usr/share/plymouth/themes/abyss/` | 0644 | Plymouth "script" theme: the Abyss artwork scaled to cover the screen, a thin progress bar and a password prompt (LUKS) at the bottom centre. Selected in `/etc/plymouth/plymouthd.conf`, pulled into the initramfs by `/etc/dracut.conf.d/40-abyss-plymouth.conf`; kernel line has `quiet splash`. |
-| `/etc/lightdm/lightdm.conf.d/50-abyss.conf` | 0644 | LightDM: gtk greeter, `abyss` session, `X -background none` so the splash frame stays until the greeter draws (LightDM quits plymouth with `--retain-splash`). The main `lightdm.conf` stays stock; on the live ISO the boot hook writes its autologin lines (session name from `/etc/lightdm/.session`), the installer comments them out again. |
-| `/etc/lightdm/lightdm-gtk-greeter.conf` | 0644 | Login screen: same artwork, user preselected, password box at the bottom centre (`position=50%,center 86%,end`), only a power button. |
-| `/usr/share/xsessions/abyss.desktop`, `/usr/local/bin/abyss-session` | 0644 / 0755 | "Abyss (dwm)" session: runs `~/.xinitrc`, the same file startx uses. |
-| `/usr/local/bin/abyss-display-setup` | 0755 | LightDM display-setup-script: gives the greeter the desktop's Xft.dpi (2x in Apple VMs / ≥1700 px). Pin with `/etc/abyss/dpi`. |
-| `/usr/local/bin/abyss-power` | 0755 | poweroff/reboot/suspend/hibernate that always work: normal runit path, then repair `/etc/runit/{stopit,reboot}` and signal runit, then a clean manual shutdown. `abyss-power diagnose` prints the runit control state. Bash aliases `poweroff`/`reboot` and the menu use it. |
-| `/usr/local/bin/abyss-apps` | 0755 | Builds the menu's Applications submenu from .desktop files: grouped by category, real icons (Abyss/Papirus SVG via imlib2), "Name · what it is". Cached in `~/.cache/abyss/apps.xmenu`. |
-| `/etc/runit/core-services/11-abyss-runit-ctl.sh` | 0644 | Boot-time repair of the `/etc/runit/stopit` and `reboot` symlinks (cause of `init: fatal: unable to create /etc/runit/stopit`). |
-| `/etc/sudoers.d/abyss-power` | **0440** | wheel may run `/usr/local/bin/abyss-power` without a password (doas.conf has the same rule). |
-| `/usr/local/bin/abyss-keyboard` | 0755 | setxkbmap us,ara(digits), Alt+Shift toggle, Caps=Esc, optional Super-on-Left-Alt, `--status`, `--test`. |
-| `/usr/local/bin/abyss-shortcuts` | 0755 | Cheatsheet, now matching the real `dwm/config.h` bindings. |
-| `/etc/X11/xorg.conf.d/00-keyboard.conf` | 0644 | Same layout/options at server level (covers hotplugged keyboards). |
-| `/etc/rc.conf` | 0644 | Stock Void rc.conf + silent-boot block: with `quiet`, runit stage 1/3 output goes to `/run/abyss-boot.log`; console is restored if boot drops to the emergency shell. |
-| `/etc/sv/agetty-tty1/conf` | 0644 | Unused by default: tty1 has no getty any more (LightDM owns the screen; `DEFAULT_SERVICE_LIST` starts agetty on tty2-tty6 only). Kept for anyone who re-enables text autologin. |
-| `/etc/default/grub` | 0644 | Installed systems: hidden menu, `quiet loglevel=3`. |
-| `/etc/doas.conf` | **0400 root:root** | `permit persist keepenv :wheel` + passwordless reboot/poweroff/zzz/ZZZ. |
-| `/etc/skel/.bash_profile` | 0644 | startx on tty1 only (no DISPLAY/WAYLAND/SSH, no running Xorg); X output → `~/.local/share/xorg/startx.log`. |
-| `/etc/skel/.bashrc` | 0644 | Appended: `set -o vi`, aliases `u i q r` (doas, falls back to sudo). |
-| `/etc/skel/.xinitrc` | 0755 | Adds xrdb, HiDPI `Xft.dpi` (192 from 1700 px screen height, 144 from 1300; override in `~/.config/abyss/dpi`), abyss-keyboard, `xdg-user-dirs-update` (Desktop, Documents, Downloads… with their own folder icons), sxhkd, welcome notification; nm-applet now opt-in from the menu. |
-| `/etc/skel/.Xresources` | 0644 | xmenu theme (Abyss purple). |
-| `/etc/skel/.config/sxhkd/sxhkdrc` | 0644 | Super+Alt+letter and media keys only — never keys dwm grabs. r/w rofi apps/windows, f lf, v vim, c/h dunst close/history. |
-| `/usr/local/bin/abyss-launcher` | 0755 | rofi launcher (`drun`, `run`, `window`) with `-dpi` from Xft.dpi; dmenu fallback. Menu > Apps / Run program. |
-| `/etc/skel/.config/rofi/config.rasi` | 0644 | rofi config + Abyss theme (dark, purple selection, em-based sizes). |
-| `/etc/skel/.config/dunst/dunstrc` | 0644 | Notifications: dark with purple frame, top-right under the bar, `scale = 0` (follows Xft.dpi). |
-| `/etc/skel/.config/lf/lfrc`, `lf/preview` | 0644 / 0755 | lf file manager; Enter opens text in $EDITOR, video/audio in mpv, images in feh; previews via bat/chafa/file. |
-| `/etc/skel/.config/mpv/mpv.conf` | 0644 | mpv defaults (keep-open, resume position, `vo=gpu,x11` for VMs without 3D). |
-| `/etc/skel/.vimrc` | 0644 | vim defaults (habamax on the terminal background, persistent undo, mouse). |
-| `/etc/profile.d/99-void-dev-cli.sh` | 0644 | `EDITOR`/`VISUAL` = VS Code when installed, otherwise vim. |
-| `/etc/skel/.config/abyss/keyboard.conf` | 0644 | Per-user keyboard settings read by abyss-keyboard. |
-| `/etc/skel/.hushlogin` | 0644 | No motd / last-login text on autologin. |
+| Path | Purpose |
+|---|---|
+| `/usr/local/bin/abyss-control-center` | dmenu-first menu for apps, package search, display settings, updates, services, and power actions. |
+| `/usr/local/bin/abyss-software` | Search Void packages and install curated packages or current official vendor releases. |
+| `/usr/local/bin/abyss-setup` | First-run keyboard setup, optional repository setup, optional runit services, and display settings. |
+| `/usr/local/bin/abyss-display` | XRandR display layout, resolution, refresh rate, and saved monitor profiles. |
+| `/usr/local/bin/dwm-statusbar` | Network type and transfer rate, battery and volume when available, CPU, RAM, time, and menu. |
+| `/usr/local/bin/abyss-keyboard` | Per-user XKB layout, Caps-to-Escape, VM Super-key helper, and keyboard diagnostics. |
+| `/usr/local/bin/abyss-installer` | Opens Void's installer in the Abyss `st` terminal. |
+| `/usr/local/bin/abyss-power` | Runit-aware power actions and diagnostics. |
+| `/usr/local/bin/abyss-priv` | Selects doas, or sudo if installed, for privileged commands. |
+| `/usr/local/bin/abyss-apps` | Builds the optional installed-app menu from desktop files. |
+| `/usr/local/bin/abyss-shortcuts` | Minimal dwm shortcut reference (`Super+F1`). |
+
+## User session and login
+
+* `/etc/lightdm/lightdm.conf.d/50-abyss.conf` selects the Abyss session.
+* `/etc/lightdm/lightdm-gtk-greeter.conf` centers the login panel and uses a
+  larger font; `/var/lib/lightdm/.config/gtk-3.0/gtk.css` gives its fields more
+  width and height.
+* `/usr/local/bin/abyss-display-setup` applies the greeter's HiDPI setting.
+* `/usr/local/bin/abyss-session` starts the user's `~/.xinitrc`.
+* `custom-overlay/etc/skel/.xinitrc` applies Xft DPI, restores display profiles,
+  starts dwm and optional user-installed PipeWire components, and offers the
+  first-run setup window.
+* `/etc/skel/.config/abyss/keyboard.conf` supplies the initial keyboard layout.
+* `/etc/doas.conf` enables wheel administration; `/etc/sudoers.d/abyss-power`
+  allows the narrowly scoped power helper.
 
 ## Build hooks
 
-* `builder/abyss-mklive-tweaks.sh <mklive-copy>` — run on a *copy* of void-mklive:
-  hidden live GRUB menu (2 s, hold Esc/Shift to show), volume label `ABYSS_LIVE`,
-  live hostname `abyss-live`.
-* `builder/abyss-postsetup.sh <rootfs>` — passed as `mklive -x`. Makes every
-  overlay path `root:root` (mklive's `cp -p` otherwise keeps the macOS uid 501),
-  sets the modes above, deletes `.DS_Store`, fills the installer title version
-  (`ABYSS_VERSION`, default: build date), warns if menu/keyboard packages are missing.
-* Both build scripts now pass `-C "quiet loglevel=3 rd.udev.log_level=3 udev.log_level=3"`,
-  `SPLASH_IMAGE=…/abyss-splash.png` (GRUB background) and add the packages
-  `xmenu xdotool sxhkd setxkbmap xrdb xmodmap xev opendoas mpv vim lf rofi dunst file chafa`.
+* `builder/abyss-mklive-tweaks.sh` patches a working copy of void-mklive to set
+  the hidden GRUB menu, ISO label, live hostname, and PMR signing key.
+* `builder/abyss-postsetup.sh` normalizes overlay ownership and file modes,
+  writes the build version, and reports missing core binaries.
 
-## Suckless packages (Abyss PMR)
-
-`dwm/`, `st/`, `dmenu/`, `slock/`, `tabbed/` and `wmname/` in this repository are the
-patched sources as shipped. The ISO does not compile them; it installs the matching
-packages from `https://mrzakaria.github.io/AbyssLinuxPMR/current` (`mklive -r`), whose
-templates carry the same changes as patch files against the release tarballs.
-
-* Repository config: `/etc/xbps.d/20-abyss-pmr.conf`
-* Signing key: `keys/abyss-pmr.plist`, installed by `builder/abyss-mklive-tweaks.sh` as
-  `/var/db/xbps/keys/c6:f0:d1:05:cb:f1:89:83:58:c2:e2:e4:4c:c9:09:9a.plist`
-* To change a suckless tool: edit the tree here to try it, then update the patch in the
-  PMR template and bump `revision`. Installed systems get it with `xbps-install -Su`.
-
-## Rebuild
-
-The builder VM skips an ISO that already exists, so force it:
-
-```bash
-FORCE_REBUILD=1 ./build-distro.sh
-```
-
-## Verbose boot when debugging
-
-Press Esc at boot, `e` on the entry, delete `quiet`, Ctrl+X. The quiet-boot
-log of the last boot is always in `/run/abyss-boot.log`.
+The package list is deliberately small. Browsers, editors, audio, Bluetooth,
+virtualization, containers, media, and creative tools are offered after boot.
+The suckless packages come from the signed Abyss PMR, built from upstream
+release sources with documented patches.

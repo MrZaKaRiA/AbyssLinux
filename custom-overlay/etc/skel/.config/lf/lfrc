@@ -1,5 +1,5 @@
 # ~/.config/lf/lfrc - Abyss Linux file manager (Super+Alt+f, menu > Tools)
-# Enter opens: text -> $EDITOR (vim), video/audio -> mpv, images -> feh.
+# Enter opens: text -> $EDITOR (vim), video/audio -> mpv, images -> nsxiv.
 
 set ifs "\n"
 set hidden false
@@ -17,7 +17,7 @@ cmd open ${{
         video/*|audio/*)
             setsid -f mpv -- $fx >/dev/null 2>&1 ;;
         image/*)
-            setsid -f feh --scale-down --auto-zoom -- $fx >/dev/null 2>&1 ;;
+            setsid -f nsxiv -- $fx >/dev/null 2>&1 ;;
         *)
             ${PAGER:-less} "$f" ;;
     esac

@@ -1,0 +1,135 @@
+#!/bin/sh
+# Lightweight RandR display picker. The kernel and graphics driver expose
+# supported outputs, modes, and refresh rates; Abyss stores the chosen profile.
+
+FONT='JetBrainsMono Nerd Font:size=10'
+NB='#0d0b18' NF='#f3e8ff' SB='#a855f7' SF='#090514'
+choose() { dmenu -i -c -l 18 -fn "$FONT" -nb "$NB" -nf "$NF" -sb "$SB" -sf "$SF" "$@"; }
+has() { command -v "$1" >/dev/null 2>&1; }
+notify() { has notify-send && notify-send -a Abyss 'Display setup' "$1" || echo "$1"; }
+profile="$HOME/.config/abyss/monitors.sh"
+
+outputs=$(xrandr --query 2>/dev/null | awk '$2 == "connected" {print $1}')
+[ -n "$outputs" ] || { notify 'No connected display outputs found.'; exit 1; }
+
+save_profile() {
+    mkdir -p "${profile%/*}"
+    xrandr --query | awk '
+        function emit() {
+            if (out == "") return
+            if (mode != "" && rate != "")
+                printf "xrandr --output %s --mode %s --rate %s --pos %sx%s\n", out, mode, rate, xpos, ypos
+            else printf "xrandr --output %s --off\n", out
+        }
+        $2 == "connected" {
+            emit(); out=$1; mode=""; rate=""; xpos=0; ypos=0; inout=1
+            for (i=3; i<=NF; i++) if ($i ~ /^[0-9]+x[0-9]+[+-]/) {
+                g=$i; split(g,a,/[x+]/); mode=a[1] "x" a[2]; xpos=a[3]; ypos=a[4]
+            }
+            next
+        }
+        /^[^[:space:]]/ {inout=0}
+        inout && mode != "" {
+            for (i=2; i<=NF; i++) if ($i ~ /\*/) {
+                r=$i; sub(/[+*].*$/, "", r); if (r ~ /^[0-9]+([.][0-9]+)?$/) rate=r
+            }
+        }
+        END {emit()}
+    ' > "$profile"
+}
+
+output_modes() {
+    common_only=$1
+    xrandr --query 2>/dev/null | awk -v out="$output" -v common="$common_only" '
+        function label(mode) {
+            if (mode == "1920x1080") return "Full HD / 1080p"
+            if (mode == "1920x1200") return "Full HD+ / WUXGA"
+            if (mode == "2560x1080") return "Ultrawide 1080p"
+            if (mode == "2560x1440") return "QHD / 2K / 1440p"
+            if (mode == "2560x1600") return "WQXGA"
+            if (mode == "2880x1800") return "MacBook Retina 15-inch class"
+            if (mode == "3024x1964") return "MacBook Pro 14-inch class"
+            if (mode == "3440x1440") return "Ultrawide QHD"
+            if (mode == "3456x2234") return "MacBook Pro 16-inch class"
+            if (mode == "3840x1080") return "Super ultrawide"
+            if (mode == "3840x1600") return "Ultrawide WQHD+"
+            if (mode == "3840x2160") return "4K UHD / 2160p"
+            if (mode == "4096x2160") return "4K DCI"
+            if (mode == "5120x1440") return "Dual QHD / super ultrawide"
+            if (mode == "5120x2160") return "5K2K ultrawide"
+            if (mode == "5120x2880") return "5K UHD+"
+            if (mode == "6016x3384") return "6K / Pro Display XDR class"
+            if (mode == "7680x4320") return "8K UHD"
+            return ""
+        }
+        $1 == out && $2 == "connected" { inout=1; next }
+        inout && /^[^[:space:]]/ { exit }
+        inout && /^[[:space:]]+[0-9]+x[0-9]+/ {
+            mode=$1; name=label(mode)
+            if (common && name == "") next
+            for (i=2; i<=NF; i++) {
+                rate=$i; sub(/[+*].*$/, "", rate)
+                if (rate ~ /^[0-9]+([.][0-9]+)?$/)
+                    printf "%s @ %s Hz%s\n", mode, rate, name == "" ? "" : " — " name
+            }
+        }
+    ' | sort -Vu
+}
+
+if [ "${1:-}" = --auto ]; then
+    prev=
+    for output in $outputs; do
+        if [ -n "$prev" ]; then xrandr --output "$output" --auto --right-of "$prev" || exit 1
+        else xrandr --output "$output" --auto || exit 1; fi
+        prev=$output
+    done
+    exit 0
+fi
+
+if [ "${1:-}" = --restore ]; then
+    if [ -r "$profile" ]; then
+        /bin/sh "$profile" 2>/dev/null
+        for output in $outputs; do
+            grep -q -- "--output $output " "$profile" || xrandr --output "$output" --auto 2>/dev/null
+        done
+    else
+        exec "$0" --auto
+    fi
+    exit 0
+fi
+
+while :; do
+    action=$(printf '%s\n' 'Arrange connected displays left-to-right' 'Choose resolution and refresh rate' 'Turn an output off' 'Reset to automatic' 'Back' | choose -p 'Display setup') || exit 0
+    case "$action" in
+        'Arrange connected'*) "$0" --auto && notify 'Displays arranged left-to-right.'; exit $? ;;
+        'Choose resolution'*)
+            output=$(printf '%s\n' "$outputs" | choose -p 'Choose output') || continue
+            [ -n "$output" ] || continue
+            view=$(printf '%s\n' 'Common sizes (supported by this display)' 'All modes exposed by this display' 'Why are 5K / 8K missing?' | choose -p "$output resolutions") || continue
+            case "$view" in
+                'Common sizes'*) modes=$(output_modes 1) ;;
+                'All modes'*) modes=$(output_modes 0) ;;
+                'Why are 5K'*)
+                    max_mode=$(output_modes 0 | awk '{split($1,a,"x"); if (a[1]+0 > w) {w=a[1]+0; max=$1}} END {print max}')
+                    notify "$output reports modes up to $max_mode. 5K/8K appear only when the display and VM graphics adapter expose them."
+                    continue ;;
+                *) continue ;;
+            esac
+            if [ -z "$modes" ]; then
+                notify "$output does not expose any named common sizes. Choose All modes to see every mode it supports."
+                continue
+            fi
+            selected=$(printf '%s\n' "$modes" | choose -p "$output resolution / refresh") || continue
+            [ -n "$selected" ] || continue
+            mode=$(printf '%s\n' "$selected" | cut -d ' ' -f1)
+            rate=$(printf '%s\n' "$selected" | awk -F ' @ | Hz' '{print $2}')
+            xrandr --output "$output" --mode "$mode" --rate "$rate" && save_profile && notify "$output set to $mode at $rate Hz."
+            ;;
+        'Turn an output off')
+            output=$(printf '%s\n' "$outputs" | choose -p 'Turn off output') || continue
+            [ -n "$output" ] && xrandr --output "$output" --off && save_profile && notify "$output turned off."
+            ;;
+        'Reset to automatic') rm -f "$profile"; "$0" --auto && notify 'Display profile reset.'; exit $? ;;
+        *) exit 0 ;;
+    esac
+done

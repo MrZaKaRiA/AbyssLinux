@@ -51,6 +51,8 @@ static const Rule rules[] = {
 	{ "Virt-manager", NULL,       NULL,          0,            0,           -1 },
 	{ "Anydesk",      NULL,       NULL,          0,            1,           -1 },
 	{ "Zenity",       NULL,       NULL,          0,            1,           -1 },
+	{ "zenity",       NULL,       NULL,          0,            1,           -1 },
+	{ NULL,           "zenity",   NULL,          0,            1,           -1 },
 	{ NULL,           NULL,       scratchpadname,0,            1,           -1 },
 };
 
@@ -84,14 +86,16 @@ static char dmenumon[8]; /* component of dmenucmd, manipulated in spawn() */
 static const char *dmenucmd[]   = { "dmenu_run", "-i", "-m", dmenumon, "-fn", dmenufont, "-nb", col_norm_bg, "-nf", col_norm_fg, "-sb", col_sel_bg, "-sf", col_sel_fg, NULL };
 static const char *termcmd[]    = { "st", NULL };
 static const char *scratchpadcmd[] = { "st", "-t", scratchpadname, "-g", "120x34", NULL };
-static const char *alacrittycmd[] = { "alacritty", NULL };
+static const char *alacrittycmd[] = { "/usr/local/bin/abyss-control-center", "alacritty", NULL };
 static const char *sshcmd[]     = { "/usr/local/bin/dmenu-ssh", NULL };
 static const char *browsercmd[] = { "/usr/local/bin/abyss-control-center", "browser", NULL }; /* notifies when none is installed */
-static const char *codecmd[]    = { "code", NULL };
-static const char *virtcmd[]    = { "virt-manager", NULL };
+static const char *codecmd[]    = { "/usr/local/bin/abyss-control-center", "code", NULL };
+static const char *virtcmd[]    = { "/usr/local/bin/abyss-control-center", "virt", NULL };
 static const char *lockcmd[]    = { "slock", NULL };
-static const char *helpcmd[]    = { "st", "-e", "/usr/local/bin/abyss-shortcuts", NULL };
+static const char *helpcmd[]    = { "/usr/local/bin/abyss-control-center", "shortcuts", NULL };
 static const char *controlcentercmd[] = { "/usr/local/bin/abyss-control-center", NULL };
+static const char *screenscmd[] = { "/usr/local/bin/abyss-control-center", "screenshot", NULL };
+static const char *areascreenscmd[] = { "/usr/local/bin/abyss-control-center", "screenshot-area", NULL };
 
 static const Key keys[] = {
 	/* modifier                     key        function        argument */
@@ -100,6 +104,8 @@ static const Key keys[] = {
 	{ MODKEY,                       XK_grave,  togglescratch,  {.v = scratchpadcmd } },
 	{ MODKEY,                       XK_F1,     spawn,          {.v = helpcmd } },
 	{ MODKEY|Mod1Mask,              XK_Return, spawn,          {.v = alacrittycmd } },
+	{ 0,                            XK_Print,  spawn,          {.v = screenscmd } },
+	{ ShiftMask,                    XK_Print,  spawn,          {.v = areascreenscmd } },
 	{ MODKEY,                       XK_p,      spawn,          {.v = dmenucmd } },
 	{ MODKEY,                       XK_s,      spawn,          {.v = sshcmd } },
 	{ MODKEY,                       XK_b,      spawn,          {.v = browsercmd } },

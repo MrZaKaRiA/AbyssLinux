@@ -1,5 +1,7 @@
 # Build outputs
 *.iso
+/.abyss-build-result
+/.abyss-*.iso.tmp
 *.o
 /void-mklive/xbps-cachedir-*/
 

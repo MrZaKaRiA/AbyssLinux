@@ -2,7 +2,7 @@
 
 # Abyss Linux
 
-**A minimalist, rolling-release, systemd-free desktop built on Void Linux and the suckless tools.**
+**A lightweight, rolling-release, systemd-free desktop built on Void Linux and the suckless tools.**
 
 [![Release](https://img.shields.io/github/v/release/MrZaKaRiA/AbyssLinux?color=a855f7&label=release)](https://github.com/MrZaKaRiA/AbyssLinux/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/MrZaKaRiA/AbyssLinux/total?color=a855f7&label=downloads)](https://github.com/MrZaKaRiA/AbyssLinux/releases)
@@ -112,11 +112,11 @@ shasum -a 256 -c SHA256SUMS        # macOS
    * the rest as an ext4 root `/`,
    * the bootloader target, set automatically.
 4. Choose **Install**. The live system is copied to disk (the *Local* source, so no network is needed), GRUB is installed (with a removable `EFI/BOOT` fallback so it boots in VMs that forget NVRAM entries), and services are enabled.
-5. Reboot, remove the ISO, log in on tty1, and the desktop starts automatically.
+5. Reboot and remove the ISO. LightDM shows the Abyss login screen; after signing in, the desktop starts.
 
 ![Installer](docs/screenshots/installer.jpg)
 
-The installer is Void's `void-installer` with Abyss changes: one-step automatic UEFI partitioning, a dark theme (`/etc/dialogrc`), Abyss branding, a clean tty1 login on the installed system (the live autologin user is removed), and the correct package clean-up order.
+The installer is Void's `void-installer` with Abyss changes: one-step automatic UEFI partitioning, a dark theme (`/etc/dialogrc`), Abyss branding, and the live autologin user removed from the installed system.
 
 ---
 
@@ -125,16 +125,15 @@ The installer is Void's `void-installer` with Abyss changes: one-step automatic 
 ![Working in Abyss Linux](docs/screenshots/workflow.jpg)
 
 * **dwm**, patched with systray, status2d, vanitygaps, scratchpad, attachaside and autostart, and themed in Abyss purple `#a855f7` on `#0d0b18`.
-* **A minimal status bar** (`dwm-statusbar`): CPU, RAM and the clock, plus `offline` when there is no network, and a purple **Menu** button.
-* **The Abyss menu** (`abyss-control-center`, xmenu). Click Menu, or press `Super+Esc`. Everything is one tree: Apps, Files, Browser, System settings (network, audio, displays, keyboard, wallpaper), Tools (monitor, update, lf, vim, SSH manager, shortcuts) and Power (lock, suspend, hibernate, exit, reboot, shut down). A flat, searchable dmenu version is the fallback.
-* **HiDPI out of the box.** `~/.xinitrc` sets `Xft.dpi` to 192 (2×) in Apple Virtualization guests and on screens at least 1700 px tall, and to 144 (1.5×) from 1300 px. dwm, st, dmenu, xmenu, rofi and dunst all scale with it. To pin a value: `echo 144 > ~/.config/abyss/dpi`.
-* **Keyboard:** `us` + `ara` layouts (Alt+Shift switches), Caps Lock is Escape, and `Super+Alt+k` swaps Super onto Left Alt for VMs that capture the Command key.
-* **Notifications:** dunst, dark with a purple frame, placed under the bar.
-* **Dark GTK apps:** Thunar and other GTK 3 apps use the Abyss theme: a dark Adwaita with purple selection, and Papirus-Dark icons with violet folders. Desktop, Documents, Downloads, Music, Pictures and Videos each get their own folder icon.
+* **A small status bar** (`dwm-statusbar`): network type and transfer rate, battery when present, volume when audio is installed, CPU, RAM, clock, and the Menu button.
+* **A searchable dmenu control center.** Click the bar or press `Super+Esc` to open settings, the package browser, first-run setup, display controls, and power actions.
+* **On-demand software.** The ISO contains no general-purpose apps. Install Firefox, Chrome, QEMU/virt-manager, Docker, VLC, PipeWire, VS Code, ArtCraft Launcher, Ollama, Claude Code, OpenCode, Cursor, or browse Void packages from the software window.
+* **First-run setup.** Choose keyboard layouts, enable optional Void repositories, and start optional runit services only when needed.
+* **HiDPI and displays.** Abyss sets a reasonable Xft scale from the largest connected display, remembers resolution and refresh-rate choices, and offers a left-to-right multi-monitor layout. Mixed-DPI scaling depends on Xorg's global DPI behavior.
+* **OLED option.** The desktop background is true black. Display settings can blank an idle screen after ten minutes.
+* **Hardware support.** XRandR exposes modes provided by the graphics driver, including high refresh rates. Standard USB keyboards, mice, and storage use Void's kernel support; install the optional external-drive tools for graphical mounting. USB-C display output and docks remain dependent on the device, firmware, GPU, and dock.
 
-| Menu | Launcher (rofi) | Files (lf) |
-|---|---|---|
-| ![Menu](docs/screenshots/menu.jpg) | ![rofi](docs/screenshots/rofi.jpg) | ![lf](docs/screenshots/lf.jpg) |
+The desktop uses the Abyss purple palette with the upstream-based `dwm`, `st`, `dmenu`, `slock`, and `tabbed` packages. Additional applications remain ordinary Void packages or vendor downloads installed on demand.
 
 ---
 
@@ -178,19 +177,7 @@ The installer is Void's `void-installer` with Abyss changes: one-step automatic 
 | `Super+Shift+b` | Toggle bar |
 | `Super+Shift+q` | Quit dwm |
 
-### sxhkd (`~/.config/sxhkd/sxhkdrc`, Super+Alt+letter only, never keys dwm grabs)
-
-| Keys | Action |
-|---|---|
-| `Super+Alt+r` / `Super+Alt+w` | rofi apps / window switcher |
-| `Super+Alt+f` / `Super+Alt+v` | lf file manager / vim |
-| `Super+Alt+e` | Files (Thunar) |
-| `Super+Alt+n` / `a` / `d` | Network / audio / displays |
-| `Super+Alt+m` / `u` | System monitor (btop) / update system |
-| `Super+Alt+l` / `Super+Alt+Esc` | Lock / shut down |
-| `Super+Alt+k` | Swap Super ↔ Left Alt |
-| `Super+Alt+c` / `Super+Alt+h` | Close notifications / show the last one again |
-| Volume, mute, mic-mute, brightness keys | PipeWire (`wpctl`), `brightnessctl` |
+Optional applications are installed from **Menu → Install software**. The base ISO does not run an extra hotkey daemon; dwm handles the bundled shortcuts directly.
 
 ### Mouse
 
@@ -219,61 +206,28 @@ The installer is Void's `void-installer` with Abyss changes: one-step automatic 
 
 The patched source trees are in this repository (`dwm/`, `st/`, `dmenu/`, `slock/`, `tabbed/`, `wmname/`). The PMR holds the same changes as patch files against the official release tarballs.
 
-### Base system (Void Linux, versions at release)
+### Minimal Void foundation
 
-| Component | Version | Notes |
-|---|---|---|
-| Linux kernel | 6.18.57 (`linux6.18`) | Void's kernel, with virtio drivers for QEMU/KVM and Apple Virtualization |
-| C library | glibc 2.41 | |
-| Init / supervisor | runit (`runit-void` 20250212) | `/etc/sv`, `/var/service` |
-| Package manager | XBPS 0.60.7 | Void repos + Abyss PMR |
-| initramfs | dracut 112 | Live hook `vmklive`; silent boot (`quiet loglevel=3`) |
-| Bootloader | GRUB 2.12 (`grub-arm64-efi` / `grub-x86_64-efi`) | Hidden menu, Abyss splash |
-| Login | agetty autologin (live), plain login (installed) → `startx` on tty1 | No display manager |
-| Session / seat | elogind 252.39, dbus 1.16.2, polkit 127 | Power actions without a password |
-| Privilege | opendoas 6.8.2 (`permit persist :wheel`), sudo 1.9.17p2 | |
-| Shell | bash 5.3 + bash-completion | Abyss prompt, `vi` mode, `u` `i` `q` `r` package aliases |
+The ISO includes Void's rolling base, kernel and firmware, XBPS, the graphical login and Xorg, networking, installer dependencies, and the runtime utilities needed by the Abyss desktop. It does not preinstall browsers, editors, media players, file managers, developer toolchains, VM suites, AI tools, or creative applications.
 
-### Desktop stack
+The desktop packages are Abyss builds of upstream suckless tools: `abyss-dwm`, `abyss-st`, `abyss-dmenu`, `abyss-slock`, `abyss-tabbed`, and `abyss-wmname`. Their templates and patches live in the signed Abyss PMR; the Void base continues to update from Void's repositories.
 
-| Component | Version | Role |
-|---|---|---|
-| Xorg (`xorg-minimal`) | 1.2 meta | X server, libinput, modesetting/fbdev |
-| xinit, xsetroot, xrandr, arandr | 1.4.4, 1.1.4, 1.5.4, 0.1.11 | Session start, root window, displays |
-| xmenu | 4.5.5 | The Abyss menu |
-| sxhkd | 0.6.3 | Extra hotkeys |
-| rofi | 2.0.0 | App launcher and window switcher (`abyss-launcher`) |
-| dunst + libnotify | 1.13.2, 0.8.9 | Notifications |
-| feh | 3.13.1 | Wallpaper, image viewer |
-| PipeWire + WirePlumber | 1.6.9, 0.5.18 | Audio; pavucontrol 6.2 |
-| NetworkManager (+ applet, opt-in) | 1.56.0 | Networking, `nmtui` |
-| Mesa DRI | 26.2.5 | OpenGL |
-| Fonts | JetBrains Mono, Nerd Font symbols 3.5.0, Fira Code 6.2, DejaVu 2.37 | |
+### Install applications when you need them
 
-### Applications
+Open **Menu → Install software** to install common options from Void or download a vendor's current release. The list includes Firefox, Google Chrome, Chromium, QEMU with virt-manager, Docker Engine, VLC, PipeWire, Bluetooth tools, VS Code, ArtCraft Launcher, Ollama, Claude Code, OpenCode, Cursor, and ChatGPT in the browser. Use **Search Void packages** to install other packages from enabled XBPS repositories.
 
-| App | Version | Notes |
-|---|---|---|
-| st / Alacritty | 0.9.3 / 0.17.0 | Terminals |
-| vim | 9.2.1031 | `$EDITOR` (VS Code when installed); `~/.vimrc` with habamax, persistent undo |
-| lf | r42 | File manager; Enter opens text in vim, video/audio in mpv, images in feh; previews with bat/chafa |
-| mpv | 0.41.0 | Media player (`vo=gpu,x11` for VMs without 3D) |
-| Thunar | 4.20.10 | Graphical file manager |
-| btop, fastfetch | 1.4.7, 2.69.0 | Monitor, system info |
-| eza, bat, fzf, ripgrep, fd, jq | 0.23.5, 0.26.1, 0.74.5, 15.2.0, 10.5.0, 1.8.2 | Modern CLI (`ls`/`cat` aliases) |
-| OpenSSH, sshfs, rsync | 10.6p1, 3.7.5, 3.5.1 | Remote work; `dmenu-ssh` |
-| xclip, xdotool, zenity | 0.13, 2026-03-03, 4.0.5 | Scripting helpers |
-| Installer | dialog 1.3, parted 3.7, cryptsetup 2.8.8, lvm2 2.03.29, mdadm 4.4, efibootmgr 18 | `void-installer` |
-
-Need more? `sudo xbps-install firefox chromium gimp …`. All of Void's ~14,000 packages are available.
+Some vendor installers are supported only on particular distributions. The installer uses official download sources and clearly marks browser-only links where a vendor does not provide a Void-compatible package. System packages stay managed by XBPS; vendor applications follow the vendor's update method.
 
 ### Abyss's own pieces
 
 | File | Purpose |
 |---|---|
-| `/usr/local/bin/abyss-control-center` | The menu: xmenu tree, dmenu fallback, actions, sizes that follow DPI |
+| `/usr/local/bin/abyss-control-center` | Searchable dmenu control center and settings |
+| `/usr/local/bin/abyss-software` | Online Void package browser and current vendor installers |
+| `/usr/local/bin/abyss-setup` | First-run keyboard, repositories, services, display settings |
+| `/usr/local/bin/abyss-display` | RandR mode, refresh, multi-monitor and OLED blanking controls |
 | `/usr/local/bin/abyss-installer` | Opens `void-installer` as root in a big st window with the Abyss accent |
-| `/usr/local/bin/abyss-launcher` | rofi with the right DPI (dmenu fallback) |
+| `/usr/local/bin/abyss-launcher` | Search installed apps and commands with dmenu |
 | `/usr/local/bin/abyss-keyboard` | Layouts, Caps→Esc, Super-on-Alt swap, `--status`, `--test` |
 | `/usr/local/bin/abyss-shortcuts` | Cheatsheet (`Super+F1`) |
 | `/usr/local/bin/dwm-statusbar` | Status text |
@@ -281,7 +235,7 @@ Need more? `sudo xbps-install firefox chromium gimp …`. All of Void's ~14,000 
 | `/usr/bin/void-installer` | Installer with auto-partitioning and Abyss fixes |
 | `/etc/dialogrc` | Dark installer theme |
 | `/etc/xbps.d/20-abyss-pmr.conf` | Adds the Abyss PMR |
-| `/etc/skel/…` | `.xinitrc`, `.Xresources`, `.vimrc`, `.bashrc`, rofi/dunst/lf/mpv/sxhkd configs |
+| `/etc/skel/…` | `.xinitrc`, `.Xresources`, `.vimrc`, `.bashrc`, keyboard and monitor profiles |
 
 The full list with file modes is in [docs/abyss-overlay.md](docs/abyss-overlay.md).
 
@@ -322,7 +276,6 @@ The build uses Void's [void-mklive](https://github.com/void-linux/void-mklive) (
 git clone https://github.com/MrZaKaRiA/AbyssLinux && cd AbyssLinux
 FORCE_REBUILD=1 ./build-distro.sh                 # aarch64 + x86_64
 FORCE_REBUILD=1 BUILD_X86_64=0 ./build-distro.sh  # aarch64 only
-FAST_ISO=0 FORCE_REBUILD=1 ./build-distro.sh      # full package set (browsers, dev tools, containers, art apps)
 ```
 
 Output: `void-suckless-dev-aarch64.iso` and `void-suckless-dev-x86_64.iso`. The release renames them to `abyss-linux-<version>-<arch>.iso`.
@@ -331,7 +284,7 @@ What the build does:
 
 1. `builder/setup-builder.sh` (macOS only) downloads a Void aarch64 rootfs and kernel to `/tmp/void-builder`.
 2. `builder/abyss-mklive-tweaks.sh` patches a *copy* of void-mklive: hidden 2 s GRUB menu, ISO label `ABYSS_LIVE`, hostname `abyss-live`, and the Abyss PMR key in `keys/`.
-3. `mklive.sh` installs the package list from the Void repos **and the Abyss PMR** (`-r`), copies `custom-overlay/` over the rootfs, enables services, and runs `builder/abyss-postsetup.sh`. That hook sets root ownership and modes, writes the version into the installer and `/etc/os-release`, and reports missing tools.
+3. `mklive.sh` installs the minimal package list from the Void repos **and the Abyss PMR** (`-r`), copies `custom-overlay/` over the rootfs, enables only core services, and runs `builder/abyss-postsetup.sh`. That hook sets root ownership and modes, writes the version into the installer and `/etc/os-release`, and reports missing tools.
 4. dracut builds the live initramfs, and xorriso makes a hybrid ISO with the Abyss GRUB splash. The kernel command line is `quiet loglevel=3 rd.udev.log_level=3 udev.log_level=3`.
 
 Rebuild a suckless binary for local testing by editing `dwm/config.def.h` (for example) and building it like any suckless program (`make`). Ship the change through the PMR (see [CONTRIBUTING.md](CONTRIBUTING.md)).

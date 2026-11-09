@@ -1,7 +1,6 @@
 # ==============================================================================
 # /etc/profile.d/99-void-dev-cli.sh
-# Interactive Developer Shell Environment, Safe Natural XBPS Wrappers,
-# Interactive Fuzzy Package Manager (pkg-ui), Git-Aware 2-Line PS1 & Aliases
+# Lightweight interactive shell helpers and Void package shortcuts
 # ==============================================================================
 
 # 1. Interactive shell guard — never affect non-interactive scripts or Makefiles
@@ -14,16 +13,21 @@ export PATH="/usr/local/bin:${HOME}/.local/bin:${PATH}"
 if command -v code >/dev/null 2>&1; then
     export EDITOR="code --wait" VISUAL="code --wait"
 else
-    export EDITOR=vim VISUAL=vim
+    export EDITOR=vi VISUAL=vi
 fi
+
+abyss_priv() {
+    if command -v doas >/dev/null 2>&1; then doas "$@"
+    else sudo "$@"; fi
+}
 
 # 2. Natural XBPS Package Management Functions
 update() {
-    sudo xbps-install -S
+    abyss_priv xbps-install -S
 }
 
 upgrade() {
-    sudo xbps-install -Su "$@"
+    abyss_priv xbps-install -Su "$@"
 }
 
 search() {
@@ -31,18 +35,18 @@ search() {
 }
 
 remove() {
-    sudo xbps-remove -R "$@"
+    abyss_priv xbps-remove -R "$@"
 }
 
 cleanup() {
-    sudo xbps-remove -Oo
+    abyss_priv xbps-remove -Oo
 }
 
 # Safe `install` wrapper:
 # Delegates to GNU coreutils `/usr/bin/install` (`command install`) whenever
 # any option flag starting with `-` is passed (e.g., `-m`, `-d`, `-D`, `-c`, `-o`, `-g`)
 # or when more than 1 path-like argument containing `/` is passed.
-# Otherwise installs packages via `sudo xbps-install -S "$@"`.
+# Otherwise installs packages via XBPS with doas (or sudo if installed).
 install() {
     if [ "$#" -eq 0 ]; then
         command install
@@ -68,33 +72,15 @@ install() {
         return $?
     fi
 
-    sudo xbps-install -S "$@"
+    abyss_priv xbps-install -S "$@"
 }
 
-# 3. Interactive Fuzzy Package Manager (pkg-ui)
+# 3. Searchable dmenu package browser
 pkg-ui() {
-    if ! command -v fzf >/dev/null 2>&1; then
-        echo "fzf is required for pkg-ui." >&2
+    command -v abyss-software >/dev/null 2>&1 && abyss-software --search || {
+        echo "abyss-software is not installed." >&2
         return 1
-    fi
-
-    local selected
-    selected=$(
-        xbps-query -Rs "" |
-        fzf --multi \
-            --ansi \
-            --prompt="📦 Void Packages > " \
-            --header="TAB: multi-select | ENTER: install | ESC: cancel" \
-            --preview='pkg=$(echo {2} | sed "s/-[^-]*$//"); xbps-query -R "$pkg" 2>/dev/null || xbps-query -R {2}' \
-            --preview-window="right:60%:wrap" |
-        awk '{print $2}' |
-        sed 's/-[^-]*$//'
-    )
-
-    if [ -n "$selected" ]; then
-        # shellcheck disable=SC2086
-        sudo xbps-install -S $selected
-    fi
+    }
 }
 
 # 4. Abyss Linux Cosmic Neon PS1 Prompt
