@@ -18,6 +18,11 @@ fi
 # Fix Java/GUI toolkit rendering in tiling WMs
 command -v wmname >/dev/null 2>&1 && wmname LG3D &
 
+# Match libadwaita applications to Abyss's dark desktop, including under startx.
+# Set ADW_DEBUG_COLOR_SCHEME explicitly to choose another appearance.
+: "${ADW_DEBUG_COLOR_SCHEME:=prefer-dark}"
+export ADW_DEBUG_COLOR_SCHEME
+
 # X resources (dmenu and Abyss theme)
 [ -f "$HOME/.Xresources" ] && command -v xrdb >/dev/null 2>&1 && xrdb -merge "$HOME/.Xresources"
 
