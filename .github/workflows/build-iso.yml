@@ -34,8 +34,8 @@ jobs:
         run: |
           repo=https://mrzakaria.github.io/AbyssLinuxPMR/current
           for attempt in $(seq 1 90); do
-            if curl -fsI "$repo/abyss-desktop-1.0_20.${{ matrix.arch }}.xbps" >/dev/null && \
-               curl -fsI "$repo/abyss-theme-1.0_3.${{ matrix.arch }}.xbps" >/dev/null; then
+            if curl -fsI "$repo/abyss-desktop-1.0_21.${{ matrix.arch }}.xbps" >/dev/null && \
+               curl -fsI "$repo/abyss-theme-1.0_4.${{ matrix.arch }}.xbps" >/dev/null; then
               exit 0
             fi
             sleep 10
