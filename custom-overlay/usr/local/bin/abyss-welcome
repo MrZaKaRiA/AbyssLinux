@@ -1,1 +1,23 @@
-abyss-shortcuts
+#!/bin/sh
+printf '%s\n' \
+    'Abyss Linux — keyboard shortcuts' \
+    '' \
+    'Super+Return       Open st terminal' \
+    'Super+Escape       Open Abyss menu' \
+    'Super+p            Run a command with dmenu' \
+    'Super+grave        Toggle scratchpad terminal' \
+    'Super+b            Open browser (install one first)' \
+    'Super+c            Open VS Code (install first)' \
+    'Super+v            Open virt-manager (install first)' \
+    'Super+Shift+l      Lock the screen' \
+    'Super+F1           Show this page' \
+    '' \
+    'Super+j / k        Focus next / previous window' \
+    'Super+h / l        Shrink / grow master area' \
+    'Super+t / f / m    Tile / float / monocle layouts' \
+    'Super+1…9          Switch desktop tags' \
+    'Super+Shift+1…9    Move window to a tag' \
+    'Super+comma / dot  Focus previous / next monitor' \
+    '' \
+    'Super+Escape → Settings → Display for monitors, refresh rate, OLED blanking.' \
+    'Super+Escape → Install software to add apps from Void or official downloads.'

@@ -1,104 +1,70 @@
-#!/usr/bin/env bash
-# ==============================================================================
-# abyss-shortcuts - Abyss Linux Onboarding & Shortcuts Cheatsheet
-# ==============================================================================
+#!/bin/sh
+pause_if_terminal() {
+    if [ -t 0 ]; then
+        printf '\nPress Enter to close '
+        IFS= read -r _
+    fi
+}
 
-# Cosmic Abyss Colors
-CYAN="\033[1;38;5;51m"
-MAGENTA="\033[1;38;5;197m"
-PURPLE="\033[1;38;5;141m"
-LIME="\033[1;38;5;191m"
-WHITE="\033[1;38;5;15m"
-GRAY="\033[38;5;245m"
-BOLD="\033[1m"
-RESET="\033[0m"
-MENU_ICON="Menu"
-
-clear
-cat << "LOGO"
-[1;38;5;141m         .-----------------.
-[1;38;5;135m      .-'   .-----------.   '-.
-[1;38;5;129m    .'   .-'    _____    '-.   '.
-[1;38;5;99m   /   .'     /       \     '.   \      [1;38;5;197m    _    ____  __   ______ ____ 
-[1;38;5;93m  /   /      /   .-.   \      \   \     [1;38;5;198m   / \  | __ ) \ \ / / ___/ ___|
-[1;38;5;63m |   |      |   /   \   |      |   |    [1;38;5;171m  / _ \ |  _ \  \ V /\___ \___ \
-[1;38;5;57m |   |      |  |  *  |  |      |   |    [1;38;5;141m / ___ \| |_) |  | |  ___) |__) |
-[1;38;5;63m |   |      |   \___/   |      |   |    [1;38;5;105m/_/   \_\____/   |_| |____/____/ 
-[1;38;5;93m  \   \      \         /      /   /     [1;38;5;51m  L   I   N   U   X   E D I T I O N
-[1;38;5;99m   \   '.     \_______/     .'   /
-[1;38;5;129m    '.   '-.             .-'   .'       [38;5;250mSuckless Developer Workstation (Void Base)
-[1;38;5;135m      '-.   '-----------'   .-'
-[1;38;5;141m         '-----------------'[0m
-LOGO
-
-echo ""
-echo -e "${PURPLE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
-echo -e "${WHITE}  🚀 WELCOME TO ABYSS LINUX — KEYBOARD CHEATSHEET${RESET}"
-echo -e "${PURPLE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
-echo ""
-
-# Which physical key is Super right now (Left Alt inside VMs, see abyss-keyboard)
-SUPER_NOTE="Win/Cmd key"
-if abyss-keyboard --status 2>/dev/null | grep -q 'Left Alt'; then
-    SUPER_NOTE="Left Alt (swapped - change in menu > System settings > Keyboard)"
+# Prefer the running window manager's bindings, including user changes.
+if command -v abyss-key-capture >/dev/null 2>&1 && rows=$(abyss-key-capture --list 2>/dev/null) && [ -n "$rows" ]; then
+    printf '%s\n\n' 'Abyss Linux — current keyboard shortcuts'
+    printf '%s\n' "$rows" | awk -F '\t' '
+        function chord(m,k, r) {
+            if (k == "-") return "Disabled"
+            r=""; if (int(m/64)%2) r=r "Super+"; if (int(m/8)%2) r=r "Alt+";
+            if (int(m/4)%2) r=r "Ctrl+"; if (int(m)%2) r=r "Shift+"; return r k
+        }
+        $1 == "B" { printf "%-24s %s (%s)\n", chord($4,$5), $6, chord($2,$3) }
+        $1 == "A" { printf "%-24s Launch %s\n", chord($3,$4), $5 }
+    '
+    printf '\n%s\n' 'Use Settings → Keyboard → View and edit shortcuts to make changes.'
+    pause_if_terminal
+    exit 0
 fi
 
-echo -e "  ${MAGENTA}● ABYSS MENU:${RESET}"
-echo -e "    ${LIME}Click ${MENU_ICON} (top-right)${RESET}  Apps, System settings, Tools, Power - all in one menu"
-echo -e "    ${LIME}[Super] + Escape${RESET}       Open the same menu from the keyboard"
-echo -e "    ${GRAY}Super is currently: ${WHITE}${SUPER_NOTE}${RESET}"
-echo ""
+printf '%s\n' \
+    'Abyss Linux — active dwm keyboard shortcuts' \
+    '' \
+    'Super+Return       Open st terminal' \
+    'Super+Escape       Open Abyss menu' \
+    'Super+grave        Toggle scratchpad terminal' \
+    'Super+F1           Show this page' \
+    'Super+Alt+Return   Open Alacritty, or st if Alacritty is absent' \
+    'Print              Save a full-screen screenshot' \
+    'Shift+Print        Select and save a screenshot area' \
+    'Super+p            Run a command with dmenu' \
+    'Super+s            SSH connection menu' \
+    'Super+b            Open the first installed browser' \
+    'Super+c            Open VS Code, or explain how to install it' \
+    'Super+v            Open virt-manager, or explain how to install it' \
+    'Super+Shift+l      Lock the screen' \
+    'Super+Shift+b      Toggle the dwm status bar' \
+    'Super+Shift+c      Close focused window' \
+    'Super+Shift+q      Exit dwm' \
+    '' \
+    'Super+j / k        Focus next / previous window in stack' \
+    'Super+Down / Up    Focus next / previous window' \
+    'Super+Shift+j / k  Move focused window in stack' \
+    'Super+Left / Right Move to previous / next tag' \
+    'Super+Shift+Left / Right  Move window to previous / next tag' \
+    'Super+h / l        Shrink / grow master area' \
+    'Super+i / d        Add / remove master window' \
+    'Super+Shift+Return Make focused window master' \
+    'Super+Tab          View previous tag set' \
+    'Super+t / f / m    Tile / floating / monocle layouts' \
+    'Super+Space        Cycle layouts' \
+    'Super+Shift+Space  Toggle floating for focused window' \
+    'Super+0            Show all tags' \
+    'Super+1…9          Switch desktop tags' \
+    'Super+Shift+1…9    Move window to a tag' \
+    'Super+comma / dot  Focus previous / next monitor' \
+    'Super+Shift+comma / dot  Move window to previous / next monitor' \
+    'Super+Alt+0        Toggle gaps; Super+Alt+Shift+0 resets gaps' \
+    'Super+Alt+= / -    Increase / decrease gaps' \
+    '' \
+    'Super = Windows / Command key. Left Alt remains Alt by default.' \
+    'Super+Escape → Settings → Display for monitors, refresh rate, OLED blanking.' \
+    'Super+Escape → Install software to add apps from Void or official downloads.'
 
-echo -e "  ${MAGENTA}● APPLICATIONS:${RESET}"
-echo -e "    ${LIME}[Super] + Return${RESET}       Terminal (${CYAN}st${RESET})       ${LIME}[Super] + Alt + Return${RESET}  alacritty"
-echo -e "    ${LIME}[Super] + p${RESET}            Run program (${CYAN}dmenu${RESET})  ${LIME}[Super] + \`${RESET}  Scratchpad terminal"
-echo -e "    ${LIME}[Super] + b${RESET}            Web browser          ${LIME}[Super] + c${RESET}  VS Code"
-echo -e "    ${LIME}[Super] + s${RESET}            SSH manager          ${LIME}[Super] + v${RESET}  virt-manager"
-echo -e "    ${LIME}[Super] + Shift + l${RESET}    Lock screen          ${LIME}[Super] + F1${RESET} This cheatsheet"
-echo ""
-
-echo -e "  ${MAGENTA}● SYSTEM (sxhkd):${RESET}"
-echo -e "    ${LIME}[Super] + Alt + n / a / d${RESET}  Network / Audio / Displays"
-echo -e "    ${LIME}[Super] + Alt + e / m / u${RESET}  Files / System monitor / Update"
-echo -e "    ${LIME}[Super] + Alt + l${RESET}          Lock     ${LIME}[Super] + Alt + Escape${RESET}  Shut down"
-echo -e "    ${LIME}[Super] + Alt + r / w${RESET}      App launcher / window switcher (${CYAN}rofi${RESET})"
-echo -e "    ${LIME}[Super] + Alt + f / v${RESET}      File manager (${CYAN}lf${RESET}) / Editor (${CYAN}vim${RESET})"
-echo -e "    ${LIME}[Super] + Alt + c / h${RESET}      Close notifications / show last one (${CYAN}dunst${RESET})"
-echo -e "    ${LIME}Volume / Mute keys${RESET}         PipeWire volume (wpctl)"
-echo -e "    ${GRAY}In lf, Enter opens videos/music in ${WHITE}mpv${GRAY}, images in feh, text in vim${RESET}"
-echo ""
-
-echo -e "  ${MAGENTA}● KEYBOARD:${RESET}"
-echo -e "    ${LIME}Alt + Shift${RESET}            Switch English / Arabic"
-echo -e "    ${LIME}Caps Lock${RESET}              Escape"
-echo -e "    ${LIME}[Super] + Alt + k${RESET}      Move Super to Left Alt and back (for VMs)"
-echo ""
-
-echo -e "  ${MAGENTA}● WINDOW MANAGEMENT (dwm):${RESET}"
-echo -e "    ${LIME}[Super] + j / k${RESET}        Focus next / previous window"
-echo -e "    ${LIME}[Super] + Shift + j / k${RESET} Move the window down / up the stack (or ${LIME}Shift + ↓ / ↑${RESET})"
-echo -e "    ${LIME}[Super] + h / l${RESET}        Shrink / grow master area"
-echo -e "    ${LIME}[Super] + i / d${RESET}        More / fewer windows in master"
-echo -e "    ${LIME}[Super] + Shift + Return${RESET} Promote window to master"
-echo -e "    ${LIME}[Super] + Shift + c${RESET}    Close window"
-echo -e "    ${LIME}[Super] + t / f / m${RESET}    Layout: tile / float / monocle  (${LIME}Space${RESET}: previous)"
-echo -e "    ${LIME}[Super] + Shift + Space${RESET} Toggle floating for the window"
-echo -e "    ${LIME}[Super] + 1..9 / 0${RESET}     View tag / all tags  (${LIME}+Shift${RESET}: move window)"
-echo -e "    ${LIME}[Super] + ← / →${RESET}        Previous / next desktop  (${LIME}+Shift${RESET}: take the window along)"
-echo -e "    ${LIME}[Super] + Tab${RESET}          Previous tag         ${LIME}[Super] + Shift + b${RESET}  Toggle bar"
-echo -e "    ${LIME}[Super] + Alt + = / -${RESET}  Gaps bigger / smaller (${LIME}Alt + 0${RESET}: toggle)"
-echo -e "    ${LIME}[Super] + Shift + q${RESET}    Quit dwm"
-echo ""
-
-echo -e "  ${MAGENTA}● PACKAGES (XBPS via doas):${RESET}"
-echo -e "    ${LIME}u${RESET}                      Update system     (${GRAY}xbps-install -Su${RESET})"
-echo -e "    ${LIME}i <pkg>${RESET}                Install           (${GRAY}xbps-install -S${RESET})"
-echo -e "    ${LIME}q <term>${RESET}               Search            (${GRAY}xbps-query -Rs${RESET})"
-echo -e "    ${LIME}r <pkg>${RESET}                Remove            (${GRAY}xbps-remove -R${RESET})"
-echo -e "    ${LIME}pkg-ui${RESET}                 Fuzzy package explorer (${CYAN}fzf${RESET})"
-echo -e "${PURPLE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
-echo -e "  ${GRAY}Press ${WHITE}[ENTER]${GRAY} to start terminal session, or ${WHITE}[q]${GRAY} to exit.${RESET}"
-read -r -n 1 key
-if [ "$key" != "q" ] && [ "$key" != "Q" ]; then
-    exec bash
-fi
+pause_if_terminal

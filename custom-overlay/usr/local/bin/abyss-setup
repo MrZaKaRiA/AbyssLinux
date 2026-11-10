@@ -1,0 +1,88 @@
+#!/bin/sh
+# First-run and desktop setup for Abyss Linux.
+
+PATH="/usr/local/bin:$HOME/.local/bin:$PATH"
+FONT='JetBrainsMono Nerd Font:size=10'
+NB='#0d0b18' NF='#f3e8ff' SB='#a855f7' SF='#090514'
+choose() { dmenu -i -c -l 14 -fn "$FONT" -nb "$NB" -nf "$NF" -sb "$SB" -sf "$SF" "$@"; }
+has() { command -v "$1" >/dev/null 2>&1; }
+notify() { has notify-send && notify-send -a Abyss 'Abyss setup' "$1" || echo "$1"; }
+term() { setsid -f st -t "$1" -e sh -c "$2; echo; printf 'Press Enter to close '; read _" >/dev/null 2>&1; }
+priv() { abyss-priv "$@"; }
+
+set_keyboard() {
+    layout=$(printf '%s\n' 'English (US) — us' 'Arabic (standard) — ara' 'French (France) — fr' 'English + Arabic — us,ara' | choose -p 'Keyboard layout') || return
+    case "$layout" in
+        'English (US)'*) layouts=us; variants= ;;
+        'Arabic (standard)'*) layouts=ara; variants=digits ;;
+        'French (France)'*) layouts=fr; variants= ;;
+        'English + Arabic'*) layouts=us,ara; variants=,digits ;;
+        *) return ;;
+    esac
+    conf="$HOME/.config/abyss/keyboard.conf"
+    mkdir -p "${conf%/*}"
+    if [ -f "$conf" ]; then
+        sed -i -e "s/^LAYOUTS=.*/LAYOUTS=\"$layouts\"/" -e "s/^VARIANTS=.*/VARIANTS=\"$variants\"/" "$conf"
+    else
+        printf 'MODEL=pc105\nLAYOUTS="%s"\nVARIANTS="%s"\nTOGGLE="grp:alt_shift_toggle"\nCAPS="caps:escape"\nSWAP_SUPER=0\n' "$layouts" "$variants" > "$conf"
+    fi
+    abyss-keyboard && notify "Keyboard set to $layouts."
+}
+
+optional_repos() {
+    case "$(uname -m)" in x86_64) arch=x86 ;; *) arch=other ;; esac
+    options='Enable nonfree repository
+Enable multilib repository (x86_64 glibc only)
+Back'
+    while :; do
+        item=$(printf '%s\n' "$options" | choose -p 'Optional Void repositories') || return
+        case "$item" in
+            'Enable nonfree'*) term 'Enable nonfree repository' 'abyss-priv xbps-install -S void-repo-nonfree && abyss-priv xbps-install -S' ;;
+            'Enable multilib'*)
+                [ "$arch" = x86 ] || { notify 'Multilib is available only on x86_64 glibc.'; continue; }
+                term 'Enable multilib repository' 'abyss-priv xbps-install -S void-repo-multilib && abyss-priv xbps-install -S'
+                ;;
+            *) return ;;
+        esac
+    done
+}
+
+service_setup() {
+    services=$(find /etc/sv -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | sort | while IFS= read -r s; do
+        [ -e "/var/service/$s" ] || printf '%s\n' "$s"
+    done)
+    [ -n "$services" ] || { notify 'No installed services are waiting to be enabled.'; return; }
+    service=$(printf '%s\n' "$services" | choose -p 'Enable runit service') || return
+    [ -n "$service" ] || return
+    case "$service" in *[!A-Za-z0-9_.-]*) notify 'Invalid service name.'; return 1 ;; esac
+    if [ -d "/etc/sv/$service" ]; then
+        priv ln -s "/etc/sv/$service" "/var/service/$service" && notify "$service will start now and at boot."
+    fi
+}
+
+menu() {
+    while :; do
+        item=$(printf '%s\n' 'Install software' 'Keyboard layout' 'Optional repositories' 'Enable a service' 'Display setup' 'Done' | choose -p 'Abyss setup') || return
+        case "$item" in
+            'Install software') abyss-software ;;
+            'Keyboard layout') set_keyboard ;;
+            'Optional repositories') optional_repos ;;
+            'Enable a service') service_setup ;;
+            'Display setup') abyss-display ;;
+            *) return ;;
+        esac
+    done
+}
+
+if [ "${1:-}" = --first-run ]; then
+    marker="$HOME/.config/abyss/.first-run-done"
+    [ -e "$marker" ] && exit 0
+    sleep 4
+    choice=$(printf '%s\n' 'Start setup' 'Later' 'Do not show again' | choose -p 'Welcome to Abyss Linux') || exit 0
+    case "$choice" in
+        'Start setup') menu; mkdir -p "${marker%/*}"; : > "$marker" ;;
+        'Do not show again') mkdir -p "${marker%/*}"; : > "$marker" ;;
+    esac
+else
+    menu
+fi

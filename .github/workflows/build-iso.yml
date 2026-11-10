@@ -1,0 +1,68 @@
+name: Build candidate ISO images
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'VERSION'
+      - 'builder/**'
+      - 'custom-overlay/**'
+      - 'void-mklive/**'
+      - '.github/workflows/build-iso.yml'
+permissions:
+  contents: read
+jobs:
+  build:
+    name: Build ${{ matrix.arch }} ISO
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [aarch64, x86_64]
+    container:
+      image: ghcr.io/void-linux/void-mklive:20250116R1
+      options: --privileged
+      volumes:
+        - /dev:/dev
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare build container
+        shell: sh
+        run: xbps-install -Syu xbps && xbps-install -yu && xbps-install -y curl xorriso squashfs-tools
+      - name: Wait for published package update
+        shell: bash
+        run: |
+          repo=https://mrzakaria.github.io/AbyssLinuxPMR/current
+          for attempt in $(seq 1 90); do
+            if curl -fsI "$repo/abyss-desktop-1.0_19.${{ matrix.arch }}.xbps" >/dev/null && \
+               curl -fsI "$repo/abyss-theme-1.0_3.${{ matrix.arch }}.xbps" >/dev/null; then
+              exit 0
+            fi
+            sleep 10
+          done
+          echo 'Required signed PMR packages were not published in time' >&2
+          exit 1
+      - name: Build image
+        shell: bash
+        run: bash builder/build-one-ci.sh '${{ matrix.arch }}'
+      - name: Check ISO structure and checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          file=$(find out -name '*.iso' -type f -print -quit)
+          test -n "$file" && test -s "$file"
+          xorriso -indev "$file" -find / -type f -exec lsdl -- > out/iso-files.txt
+          grep -i 'squashfs.img' out/iso-files.txt
+          xorriso -indev "$file" -report_el_torito plain 2>&1 | grep -i 'UEFI'
+          (cd out && sha256sum *.iso > SHA256SUMS)
+      - name: Audit installed packages and overlay
+        shell: bash
+        run: bash builder/audit-iso.sh "$(find out -name '*.iso' -type f -print -quit)"
+      - uses: actions/upload-artifact@v4
+        if: always() && !cancelled()
+        with:
+          name: abyss-iso-${{ matrix.arch }}
+          path: out/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7

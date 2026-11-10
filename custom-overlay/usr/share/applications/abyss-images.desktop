@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Images
+GenericName=Image Viewer
+Comment=Browse images in Pictures
+Exec=abyss-control-center images
+TryExec=nsxiv
+Icon=nsxiv
+Categories=Graphics;Viewer;
+Terminal=false

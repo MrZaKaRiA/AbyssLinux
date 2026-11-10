@@ -1,0 +1,210 @@
+#!/bin/sh
+# Minimal on-demand software browser for Void Linux.
+
+PATH="/usr/local/bin:$HOME/.local/bin:$PATH"
+NB='#0d0b18' NF='#f3e8ff' SB='#a855f7' SF='#090514'
+FONT='JetBrainsMono Nerd Font:size=10'
+
+has() { command -v "$1" >/dev/null 2>&1; }
+choose() { dmenu -i -c -l 13 -fn "$FONT" -nb "$NB" -nf "$NF" -sb "$SB" -sf "$SF" "$@"; }
+term() { setsid -f st -t "$1" -e sh -c "$2; echo; printf 'Press Enter to close '; read _" >/dev/null 2>&1; }
+priv() { abyss-priv "$@"; }
+note() {
+    if has notify-send; then notify-send -a Abyss "$1" "${2:-}"
+    else printf '%s — %s\n' "$1" "${2:-}" | choose -p 'Abyss'; fi
+}
+
+install_packages() {
+    packages=$1
+    if ! printf '%s\n' "$packages" | tr ' ' '\n' | while IFS= read -r pkg; do
+        [ -n "$pkg" ] || continue
+        xbps-query -R "$pkg" >/dev/null 2>&1 || exit 1
+    done; then
+        note 'Package unavailable' "$packages is not in the enabled Void repositories. Run first-run setup to enable optional repositories."
+        return 1
+    fi
+    term 'Install software' "abyss-priv xbps-install -S $packages"
+}
+
+search_packages() {
+    query=$(printf '' | choose -p 'Search Void packages') || return
+    [ -n "$query" ] || return
+    results=$(xbps-query -Rs "$query" 2>/dev/null | awk '
+        { line=$0; sub(/^\[[^]]+\][[:space:]]*/, "", line); $0=line; pkg=$1; sub(/-[0-9].*$/, "", pkg); $1=""; sub(/^[[:space:]]+/, ""); if (pkg != "") printf "%s — %s\n", pkg, $0 }
+    ' | sort -u)
+    [ -n "$results" ] || { note 'No packages found' "$query"; return; }
+    choice=$(printf '%s\n' "$results" | choose -p 'Void packages (type to filter)')
+    selected=$(printf '%s\n' "$choice" | sed 's/ —.*//')
+    [ -n "$selected" ] || return
+    if [ "$(printf 'Install %s\nCancel\n' "$selected" | choose -p 'Confirm')" = "Install $selected" ]; then
+        install_packages "$selected"
+    fi
+}
+
+install_vscode() {
+    case "$(uname -m)" in
+        x86_64) arch=x64; folder=VSCode-linux-x64 ;;
+        aarch64) arch=arm64; folder=VSCode-linux-arm64 ;;
+        *) note 'VS Code unavailable' "Unsupported architecture: $(uname -m)"; return 1 ;;
+    esac
+    tmp=$(mktemp -d "${TMPDIR:-/tmp}/abyss-vscode.XXXXXX") || return 1
+    if ! curl -fL --proto '=https' --tlsv1.2 "https://update.code.visualstudio.com/latest/linux-$arch/stable" -o "$tmp/code.tar.gz"; then
+        rm -rf "$tmp"; note 'Download failed' 'Could not download VS Code from Microsoft.'; return 1
+    fi
+    mkdir -p "$HOME/.local/opt" "$HOME/.local/bin" "$HOME/.local/share/applications"
+    tar -xzf "$tmp/code.tar.gz" -C "$tmp" || { rm -rf "$tmp"; return 1; }
+    rm -rf "$HOME/.local/opt/vscode"
+    mv "$tmp/$folder" "$HOME/.local/opt/vscode" || { rm -rf "$tmp"; return 1; }
+    ln -sf "$HOME/.local/opt/vscode/code" "$HOME/.local/bin/code"
+    cat > "$HOME/.local/share/applications/abyss-vscode.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=Visual Studio Code
+Exec=$HOME/.local/opt/vscode/code %F
+Icon=$HOME/.local/opt/vscode/resources/app/resources/linux/code.png
+Terminal=false
+Categories=Development;IDE;
+EOF
+    rm -rf "$tmp"
+    note 'VS Code installed' 'Microsoft latest stable archive installed in ~/.local/opt/vscode.'
+}
+
+install_artcraft() {
+    case "$(uname -m)" in x86_64) arch=x86_64 ;; aarch64) arch=aarch64 ;; *) note 'ArtCraft unavailable' "Unsupported architecture: $(uname -m)"; return 1 ;; esac
+    api=https://api.github.com/repos/storytold/craft-launcher/releases/latest
+    release=$(curl -fsSL --proto '=https' --tlsv1.2 "$api") || { note 'ArtCraft download unavailable' 'Could not read the latest official release.'; return 1; }
+    tag=$(printf '%s\n' "$release" | awk -F '"' '/"tag_name":/ { print $4; exit }')
+    url=$(printf '%s\n' "$release" | awk -v suffix="linux-$arch.AppImage" '/"browser_download_url":/ { u=$0; sub(/^.*"browser_download_url":[[:space:]]*"/, "", u); sub(/"[,]?$/, "", u); if (u ~ suffix "$" && u ~ /^https:\/\/github\.com\/storytold\/craft-launcher\/releases\/download\//) { print u; exit } }')
+    case "$tag" in *[!A-Za-z0-9._-]*|'') tag= ;; esac
+    [ -n "$tag" ] || { note 'ArtCraft download unavailable' 'Could not determine the latest official release tag.'; return 1; }
+    [ -n "$url" ] || { note 'ArtCraft download unavailable' 'Could not find the latest official AppImage release.'; return 1; }
+    file=${url##*/}
+    # Pin the checksum file to the same release as the API asset; the moving
+    # /latest/download endpoint can change between the two requests.
+    sums="https://github.com/storytold/craft-launcher/releases/download/$tag/SHA256SUMS.txt"
+    tmp=$(mktemp -d "${TMPDIR:-/tmp}/abyss-artcraft.XXXXXX") || return 1
+    if ! curl -fL --proto '=https' --tlsv1.2 "$url" -o "$tmp/$file" || ! curl -fL --proto '=https' --tlsv1.2 "$sums" -o "$tmp/SHA256SUMS.txt"; then
+        rm -rf "$tmp"; note 'Download failed' 'Could not download ArtCraft and its checksum.'; return 1
+    fi
+    expected=$(awk -v f="$file" '{ name=$2; sub(/^\*/, "", name); if (name == f) { print $1; exit } }' "$tmp/SHA256SUMS.txt")
+    actual=$(sha256sum "$tmp/$file" | awk '{print $1}')
+    if ! printf '%s\n' "$expected" | grep -Eq '^[[:xdigit:]]{64}$' || [ "$actual" != "$expected" ]; then
+        rm -rf "$tmp"; note 'Checksum failed' 'The ArtCraft download did not match its published checksum.'; return 1;
+    fi
+    mkdir -p "$HOME/.local/opt" "$HOME/.local/bin" "$HOME/.local/share/applications"
+    install -m 0755 "$tmp/$file" "$HOME/.local/opt/artcraft-launcher.AppImage"
+    ln -sf "$HOME/.local/opt/artcraft-launcher.AppImage" "$HOME/.local/bin/artcraft-launcher"
+    cat > "$HOME/.local/share/applications/artcraft-launcher.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=ArtCraft Launcher
+Exec=$HOME/.local/opt/artcraft-launcher.AppImage
+Terminal=false
+Categories=Graphics;
+EOF
+    rm -rf "$tmp"
+    note 'ArtCraft Launcher installed' 'Latest official release installed in ~/.local/opt.'
+}
+
+install_cursor() {
+    case "$(uname -m)" in x86_64) arch=x64 ;; aarch64) arch=arm64 ;; *) note 'Cursor unavailable' "Unsupported architecture: $(uname -m)"; return 1 ;; esac
+    page=https://cursor.com/download
+    url=$(curl -fsSL --proto '=https' --tlsv1.2 "$page" | sed 's#\\/#/#g' | grep -oE "https://api2\\.cursor\\.sh/updates/download/golden/linux-$arch/cursor/[0-9.]+" | head -n 1)
+    case "$url" in https://api2.cursor.sh/updates/download/golden/linux-"$arch"/cursor/[0-9.]*) ;; *) note 'Cursor download unavailable' 'Could not resolve the latest official AppImage download.'; return 1 ;; esac
+    tmp=$(mktemp -d "${TMPDIR:-/tmp}/abyss-cursor.XXXXXX") || return 1
+    if ! curl -fL --proto '=https' --tlsv1.2 "$url" -o "$tmp/cursor.AppImage"; then
+        rm -rf "$tmp"; note 'Download failed' 'Could not download Cursor from its official release service.'; return 1
+    fi
+    mkdir -p "$HOME/.local/opt" "$HOME/.local/bin" "$HOME/.local/share/applications"
+    install -m 0755 "$tmp/cursor.AppImage" "$HOME/.local/opt/cursor.AppImage"
+    ln -sf "$HOME/.local/opt/cursor.AppImage" "$HOME/.local/bin/cursor"
+    cat > "$HOME/.local/share/applications/cursor.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=Cursor
+Exec=$HOME/.local/opt/cursor.AppImage --appimage-extract-and-run %F
+Terminal=false
+Categories=Development;IDE;
+EOF
+    rm -rf "$tmp"
+    note 'Cursor installed' 'Latest official Linux AppImage installed in ~/.local/opt.'
+}
+
+install_ollama() {
+    if [ "$(printf 'Install latest Ollama\nCancel\n' | choose -p 'This runs Ollama’s official system installer')" = 'Install latest Ollama' ]; then
+        term 'Install Ollama' 'curl -fsSL --proto "=https" --tlsv1.2 https://ollama.com/install.sh | abyss-priv sh'
+    fi
+}
+
+install_claude_code() {
+    if [ "$(printf 'Install latest Claude Code CLI\nCancel\n' | choose -p 'This installs to your home directory')" = 'Install latest Claude Code CLI' ]; then
+        term 'Install Claude Code' 'curl -fsSL --proto "=https" --tlsv1.2 https://claude.ai/install.sh | bash'
+    fi
+}
+
+install_opencode() {
+    if [ "$(printf 'Install latest OpenCode CLI\nCancel\n' | choose -p 'This installs to your home directory')" = 'Install latest OpenCode CLI' ]; then
+        term 'Install OpenCode' 'curl -fsSL --proto "=https" --tlsv1.2 https://opencode.ai/v2/install | bash'
+    fi
+}
+
+open_official_page() {
+    url=$1
+    for browser in firefox google-chrome chromium; do
+        if has "$browser"; then setsid -f "$browser" "$url" >/dev/null 2>&1; return; fi
+    done
+    term 'Official download' "printf '%s\\n\\n' 'Open this official page after installing a browser:' '$url'; printf 'Press Enter to close '; read _"
+}
+
+catalog() {
+    cat <<'EOF'
+Firefox (Void package)	pkg:firefox
+Google Chrome (official download)	chrome
+Chromium (Void package)	pkg:chromium
+Virtual machines (QEMU + virt-manager)	pkg:qemu libvirt virt-manager bridge-utils
+Docker Engine	pkg:docker docker-compose docker-buildx
+VLC media player	pkg:vlc
+External storage (udisks + GVFS)	pkg:udisks2 gvfs thunar
+Visual Studio Code (latest stable)	vscode
+ArtCraft Launcher	artcraft
+Ollama (official installer)	ollama
+Claude Code CLI	claude-code
+OpenCode CLI	opencode
+Google Antigravity (download page)	antigravity
+Cursor (latest AppImage)	cursor
+ChatGPT (web app)	chatgpt
+Audio support (PipeWire + mixer)	pkg:pipewire pipewire-pulse wireplumber pavucontrol
+Bluetooth support	pkg:bluez
+Laptop brightness controls	pkg:brightnessctl
+Screenshot capture (optional)	pkg:maim
+Search Void packages	search
+EOF
+}
+
+if [ "${1:-}" = --search ]; then
+    search_packages
+    exit 0
+fi
+if [ "${1:-}" = --install ] && [ -n "${2:-}" ]; then
+    install_packages "$2"
+    exit $?
+fi
+
+while :; do
+    selection=$(catalog | cut -f1 | choose -p 'Software (type to filter)') || exit 0
+    action=$(catalog | awk -F '\t' -v label="$selection" '$1 == label { print $2; exit }')
+    case "$action" in
+        pkg:*) install_packages "${action#pkg:}" ;;
+        chrome) open_official_page 'https://www.google.com/chrome/' ;;
+        vscode) install_vscode ;;
+        artcraft) install_artcraft ;;
+        ollama) install_ollama ;;
+        claude-code) install_claude_code ;;
+        opencode) install_opencode ;;
+        antigravity) open_official_page 'https://antigravity.google/download?os=linux' ;;
+        cursor) install_cursor ;;
+        chatgpt) open_official_page 'https://chatgpt.com' ;;
+        search) search_packages ;;
+        *) exit 0 ;;
+    esac
+done

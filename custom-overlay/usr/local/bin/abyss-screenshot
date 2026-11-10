@@ -1,0 +1,33 @@
+#!/bin/sh
+# Optional screenshot front end. maim is installed on demand from Software,
+# so screenshot capture does not add packages to the base ISO.
+
+mode=${1:---screen}
+if ! command -v maim >/dev/null 2>&1; then
+    if command -v notify-send >/dev/null 2>&1; then
+        notify-send -a Abyss 'Screenshot support is not installed' 'Open Menu → Software → Screenshot capture to install it.'
+    else
+        echo 'Install maim from Menu → Software → Screenshot capture.' >&2
+    fi
+    exit 1
+fi
+
+if command -v xdg-user-dir >/dev/null 2>&1; then
+    pictures=$(xdg-user-dir PICTURES)
+else
+    pictures=$HOME/Pictures
+fi
+[ -n "$pictures" ] || pictures=$HOME/Pictures
+directory=$pictures/Screenshots
+mkdir -p "$directory" || exit 1
+output=$directory/Abyss-$(date '+%Y-%m-%d_%H-%M-%S').png
+
+case "$mode" in
+    --screen|screen) maim "$output" ;;
+    --area|area)     maim -s "$output" ;;
+    *) echo "usage: abyss-screenshot [--screen|--area]" >&2; exit 2 ;;
+esac
+result=$?
+[ "$result" -eq 0 ] && [ -s "$output" ] || exit "$result"
+command -v notify-send >/dev/null 2>&1 && notify-send -a Abyss 'Screenshot saved' "$output"
+printf '%s\n' "$output"

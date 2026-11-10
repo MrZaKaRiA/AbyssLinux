@@ -1,0 +1,21 @@
+#!/bin/sh
+# Repair one previously saved, unusably narrow GTK file chooser sidebar.
+# Each schema is migrated once; subsequent user adjustments are left alone.
+command -v gsettings >/dev/null 2>&1 || exit 0
+[ -n "${DBUS_SESSION_BUS_ADDRESS:-}" ] || exit 0
+state="${XDG_CONFIG_HOME:-$HOME/.config}/abyss"
+mkdir -p "$state" || exit 0
+for version in 3 4; do
+    marker="$state/file-chooser-sidebar-gtk$version"
+    [ ! -e "$marker" ] || continue
+    case "$version" in
+        3) schema=org.gtk.Settings.FileChooser ;;
+        4) schema=org.gtk.gtk4.Settings.FileChooser ;;
+    esac
+    width=$(gsettings get "$schema" sidebar-width 2>/dev/null) || continue
+    case "$width" in -1|[0-9]*) ;; *) continue ;; esac
+    if [ "$width" -lt 200 ]; then
+        gsettings set "$schema" sidebar-width 300 >/dev/null 2>&1 || continue
+    fi
+    : > "$marker"
+done

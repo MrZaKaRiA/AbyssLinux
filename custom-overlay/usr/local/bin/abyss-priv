@@ -1,0 +1,9 @@
+#!/bin/sh
+# Run a command with the configured privilege tool.
+if command -v doas >/dev/null 2>&1; then
+    exec doas "$@"
+elif command -v sudo >/dev/null 2>&1; then
+    exec sudo "$@"
+fi
+echo "abyss: install and service changes need doas or sudo" >&2
+exit 127

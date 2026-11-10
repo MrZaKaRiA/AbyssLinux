@@ -11,7 +11,7 @@ if [ -z "$dpi" ]; then
     apple_vm=
     grep -qs '^Apple' /sys/class/dmi/id/sys_vendor && apple_vm=1
     grep -qsx '0x106b' /sys/bus/pci/devices/*/subsystem_vendor && apple_vm=1
-    h=$(xrandr --current 2>/dev/null | sed -n 's/.* current [0-9]* x \([0-9]*\).*/\1/p' | head -n1)
+    h=$(xrandr --query 2>/dev/null | awk '$2 == "connected" {for(i=3;i<=NF;i++) if ($i ~ /^[0-9]+x[0-9]+[+-]/) {v=$i; sub(/[+-].*/, "", v); split(v,a,"x"); if (a[2] > h) h=a[2]}} END {print h+0}')
     if [ -n "$apple_vm" ] || [ "${h:-0}" -ge 1700 ]; then dpi=192
     elif [ "${h:-0}" -ge 1300 ]; then dpi=144
     else dpi=96; fi

@@ -2,7 +2,7 @@
 # ==============================================================================
 # dwm-statusbar - status text for the dwm bar (status2d colours)
 #
-#   ↓1.2M ↑48K   12% 54°  󰍛 1.8/7.7G  󰋊 9.4/58G  Tue 20 14:05  Menu
+#   WiFi ↓1.2M ↑48K  BAT 86%  VOL 42%   12%  󰍛 1.8/7.7G  Tue 20 14:05  Menu
 #
 # ↓ ↑   real transfer speed per second of all physical interfaces (bytes moved
 #       / seconds elapsed), "offline" when there is no network
@@ -50,6 +50,39 @@ online() {
         [[ "$(cat "/sys/class/net/$i/operstate" 2>/dev/null)" == up ]] && return 0
     done
     return 1
+}
+
+network_label() {
+    local iface
+    iface=$(ip route show default 2>/dev/null | awk 'NR == 1 {for (i=1;i<=NF;i++) if ($i == "dev") {print $(i+1); exit}}')
+    [ -n "$iface" ] || { printf '%s' 'offline'; return; }
+    if [ -d "/sys/class/net/$iface/wireless" ]; then printf '%s' 'WiFi'; else printf '%s' 'NET'; fi
+}
+
+battery() {
+    local p cap state label color
+    for p in /sys/class/power_supply/*; do
+        [ "$(cat "$p/type" 2>/dev/null)" = Battery ] || continue
+        cap=$(cat "$p/capacity" 2>/dev/null)
+        case "$cap" in ''|*[!0-9]*) continue ;; esac
+        state=$(cat "$p/status" 2>/dev/null)
+        color=$VALUE
+        [ "$cap" -le 20 ] && color=$WARN
+        label="BAT ${cap}%"
+        case "$state" in Charging) label="BAT +${cap}%" ;; esac
+        printf '%s%s' "$color" "$label"
+        return
+    done
+}
+
+volume() {
+    command -v wpctl >/dev/null 2>&1 || return
+    local line pct
+    line=$(wpctl get-volume @DEFAULT_AUDIO_SINK@ 2>/dev/null) || return
+    pct=$(printf '%s\n' "$line" | awk '{printf "%d", $2 * 100}')
+    case "$pct" in ''|*[!0-9]*) return ;; esac
+    case "$line" in *MUTED*) printf '%sVOL mute' "$LABEL"; return ;; esac
+    printf '%sVOL %s%%' "$VALUE" "$pct"
 }
 
 human_rate() {  # bytes per second -> 0B, 512K, 1.2M, 1.1G
@@ -146,12 +179,14 @@ while true; do
     UP=$(human_rate $(( DTX * 1000000 / ELAPSED )))
 
     if online; then
-        NET="${LABEL}↓${VALUE}${DOWN} ${LABEL}↑${VALUE}${UP}"
+        NET="${LABEL}$(network_label) ${VALUE}↓${DOWN} ↑${UP}"
     else
         NET="${WARN}offline"
     fi
 
-    STATUS="${NET}${SEP}${LABEL} ${VALUE}${CPU_PCT}%$(cpu_temp)${SEP}${LABEL}󰍛 ${VALUE}$(ram)${SEP}${LABEL}󰋊 $(ssd)${SEP}${VALUE}$(date '+%a %d %H:%M') ${MENU}"
+    BAT=$(battery)
+    VOL=$(volume)
+    STATUS="${NET}${SEP}${BAT:+$BAT${SEP}}${VOL:+$VOL${SEP}}${LABEL} ${VALUE}${CPU_PCT}%$(cpu_temp)${SEP}${LABEL}󰍛 ${VALUE}$(ram)${SEP}${VALUE}$(date '+%a %d %H:%M') ${MENU}"
 
     xsetroot -name "$STATUS" 2>/dev/null || true
     sleep "$INTERVAL"

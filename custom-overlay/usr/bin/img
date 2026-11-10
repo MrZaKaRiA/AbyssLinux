@@ -1,0 +1,6 @@
+#!/bin/sh
+# Open files with nsxiv; with no arguments browse the Pictures folder.
+if [ "$#" -eq 0 ]; then
+    exec abyss-control-center images
+fi
+exec nsxiv "$@"

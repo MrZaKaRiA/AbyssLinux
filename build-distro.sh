@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# build-distro.sh - Master Void Linux Suckless Developer Workstation ISO Builder
+# build-distro.sh - Minimal Void Linux + Abyss suckless ISO builder
 # Builds both ARM64 (aarch64) and x86_64 ISOs (automatically uses QEMU HVF
 # Void Linux builder VM when executed on macOS).
 # ==============================================================================
@@ -24,33 +24,27 @@ if [[ ! -d "$OVERLAY_DIR" ]]; then
     exit 1
 fi
 
-# Package groups
-PKGS_BASE_X11="base-system base-devel git curl wget grub grub-arm64-efi grub-x86_64-efi efibootmgr dosfstools parted gdisk xorg-minimal xf86-video-fbdev xf86-input-libinput xinit xsetroot xrandr arandr feh libX11-devel libXft-devel libXinerama-devel mesa-dri vulkan-loader"
-PKGS_NET_AUDIO="NetworkManager network-manager-applet pipewire wireplumber pavucontrol dbus elogind polkit dunst libnotify"
-PKGS_TERM_CLI="alacritty nerd-fonts-symbols-ttf font-jetbrains-mono-ttf font-firacode vpm vsv eza bat btop fastfetch fzf ripgrep fd jq bash-completion sudo"
-PKGS_SSH_TRANSFER="openssh fuse-sshfs rsync filezilla thunar thunar-volman gvfs zenity xclip"
-PKGS_BROWSERS_DEV="firefox chromium vscode nodejs python3 python3-pip go rust gcc clang make cmake pkg-config"
-PKGS_CONTAINERS_VM_AI="docker docker-compose docker-buildx qemu libvirt virt-manager bridge-utils ollama flatpak"
-PKGS_ARTCRAFT="gimp inkscape krita blender darktable"
-PKGS_ABYSS="xmenu xdotool sxhkd setxkbmap xrdb xmodmap xev opendoas mpv vim lf rofi dunst file chafa tumbler xdg-user-dirs"
-# Graphical boot: plymouth splash from the initramfs, LightDM greeter on top of it
-PKGS_ABYSS="${PKGS_ABYSS} plymouth lightdm lightdm-gtk-greeter"
+# Minimal bootable desktop: Void system, Xorg, network, login, and small
+# utilities that configure the Abyss session. User applications are installed
+# on demand from abyss-software after boot.
+PKGS_BASE_X11="base-system curl ca-certificates grub grub-arm64-efi grub-x86_64-efi efibootmgr dosfstools parted gdisk cryptsetup lvm2 mdadm xorg-minimal xf86-video-fbdev xf86-input-libinput xinit xsetroot xset xrandr xrdb xmodmap setxkbmap xev mesa-dri dbus elogind polkit NetworkManager lightdm lightdm-gtk-greeter font-jetbrains-mono-ttf nerd-fonts-symbols-ttf opendoas"
+PKGS_INSTALLER="dialog xtools-minimal xmirror"
 # Abyss builds of the suckless tools from the signed Abyss PMR
 ABYSS_PMR="${ABYSS_PMR:-https://mrzakaria.github.io/AbyssLinuxPMR/current}"
-PKGS_SUCKLESS="abyss-dwm abyss-st abyss-dmenu abyss-slock abyss-tabbed abyss-wmname abyss-theme"
+PKGS_SUCKLESS="abyss-dwm abyss-st abyss-dmenu abyss-slock abyss-tabbed abyss-wmname abyss-theme nsxiv"
 
-ALL_PACKAGES="${PKGS_BASE_X11} ${PKGS_NET_AUDIO} ${PKGS_TERM_CLI} ${PKGS_SSH_TRANSFER} ${PKGS_BROWSERS_DEV} ${PKGS_CONTAINERS_VM_AI} ${PKGS_ARTCRAFT} ${PKGS_ABYSS} ${PKGS_SUCKLESS}"
-ENABLED_SERVICES="dbus elogind polkit NetworkManager sshd lightdm docker libvirtd virtlogd ollama"
+ALL_PACKAGES="${PKGS_BASE_X11} ${PKGS_INSTALLER} ${PKGS_SUCKLESS}"
+ENABLED_SERVICES="dbus elogind polkit NetworkManager lightdm"
 
 # Silent boot (later loglevel= overrides mklive's built-in loglevel=4)
-ABYSS_BOOT_CMDLINE="quiet splash loglevel=3 rd.udev.log_level=3 udev.log_level=3 vt.global_cursor_default=0"
+ABYSS_BOOT_CMDLINE="quiet loglevel=3 rd.udev.log_level=3 udev.log_level=3 vt.global_cursor_default=0"
 ABYSS_POSTSETUP="${SCRIPT_DIR}/builder/abyss-postsetup.sh"
 ABYSS_SPLASH="${OVERLAY_DIR}/usr/share/backgrounds/abyss/abyss-splash.png"
 # No text login on tty1: LightDM owns the screen from the splash to the desktop
 ABYSS_DEFAULT_SERVICES="agetty-tty2 agetty-tty3 agetty-tty4 agetty-tty5 agetty-tty6 udevd"
 
 echo "=================================================================="
-echo "  Building Custom Void Linux Suckless Developer Workstation ISO"
+echo "  Building Minimal Void Linux + Abyss Suckless Desktop ISO"
 echo "  Target Archs : aarch64 (Apple Silicon / Lumen) + x86_64 (glibc)"
 echo "  Overlay      : ${OVERLAY_DIR}"
 echo "  Output ISOs  : ${OUTPUT_ISO_AARCH64}"
@@ -77,15 +71,16 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
     # Always use the versioned builder script from the workspace.
     install -m 0755 "${SCRIPT_DIR}/builder/builder.sh" "${BUILDER_DIR}/rootfs/builder.sh"
 
-    echo "[*] Packing ext4 builder disk image (${BUILDER_DIR}/root.ext4)..."
-    rm -f "${BUILDER_DIR}/root.ext4"
-    /opt/homebrew/bin/mke2fs -q -t ext4 -d "${BUILDER_DIR}/rootfs" "${BUILDER_DIR}/root.ext4" 48G
-    trap 'rm -f "${BUILDER_DIR}/root.ext4"' EXIT
+    BUILDER_IMAGE=$(mktemp "${BUILDER_DIR}/root.ext4.XXXXXX")
+    trap 'rm -f "$BUILDER_IMAGE"' EXIT
+    echo "[*] Packing ext4 builder disk image (${BUILDER_IMAGE})..."
+    /opt/homebrew/bin/mke2fs -q -t ext4 -d "${BUILDER_DIR}/rootfs" "$BUILDER_IMAGE" 48G
 
     # Unknown KEY=value kernel parameters are passed to init as environment variables.
-    VM_ENV="FAST_ISO=${FAST_ISO:-1} FORCE_REBUILD=${FORCE_REBUILD:-0} BUILD_X86_64=${BUILD_X86_64:-1}"
+    VM_ENV="FORCE_REBUILD=${FORCE_REBUILD:-0} BUILD_X86_64=${BUILD_X86_64:-1}"
 
     echo "[*] Booting QEMU HVF Void Linux Builder VM (${VM_ENV})..."
+    rm -f "${SCRIPT_DIR}/.abyss-build-result"
     /opt/homebrew/bin/qemu-system-aarch64 \
         -M virt,accel=hvf \
         -cpu host \
@@ -95,13 +90,17 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
         -kernel "${BUILDER_DIR}/vmlinux" \
         -append "root=/dev/sda rw console=ttyAMA0 init=/builder.sh ${VM_ENV}" \
         -device ich9-ahci,id=ahci \
-        -drive file="${BUILDER_DIR}/root.ext4",if=none,id=d0,format=raw \
+        -drive file="${BUILDER_IMAGE}",if=none,id=d0,format=raw \
         -device ide-hd,drive=d0,bus=ahci.0 \
         -netdev user,id=net0 \
         -device virtio-net-pci,netdev=net0 \
         -virtfs local,path="${SCRIPT_DIR}",mount_tag=hostshare,security_model=none,id=hostshare
 
-    ls -lh "${OUTPUT_ISO_AARCH64}" "${OUTPUT_ISO_X86_64}" "${OUTPUT_ISO_DEFAULT}" 2>/dev/null || true
+    if [[ ! -f "${SCRIPT_DIR}/.abyss-build-result" ]] || [[ "$(cat "${SCRIPT_DIR}/.abyss-build-result")" != 0 ]]; then
+        echo "Error: the builder VM did not complete all requested ISO builds." >&2
+        exit 1
+    fi
+    ls -lh "${OUTPUT_ISO_AARCH64}" "${OUTPUT_ISO_X86_64}" 2>/dev/null || true
     exit 0
 fi
 
@@ -126,7 +125,7 @@ sudo env SPLASH_IMAGE="$ABYSS_SPLASH" DEFAULT_SERVICE_LIST="$ABYSS_DEFAULT_SERVI
     -S "${ENABLED_SERVICES}" \
     -C "$ABYSS_BOOT_CMDLINE" \
     -x "$ABYSS_POSTSETUP" \
-    -T "Abyss Linux Suckless Developer Workstation"
+    -T "Abyss Linux Minimal Suckless Desktop"
 cp -f "$OUTPUT_ISO_AARCH64" "$OUTPUT_ISO_DEFAULT"
 
 # 2. Build x86_64 ISO
@@ -142,4 +141,4 @@ sudo env SPLASH_IMAGE="$ABYSS_SPLASH" DEFAULT_SERVICE_LIST="$ABYSS_DEFAULT_SERVI
     -S "${ENABLED_SERVICES}" \
     -C "$ABYSS_BOOT_CMDLINE" \
     -x "$ABYSS_POSTSETUP" \
-    -T "Abyss Linux Suckless Developer Workstation"
+    -T "Abyss Linux Minimal Suckless Desktop"

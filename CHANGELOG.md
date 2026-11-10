@@ -1,5 +1,17 @@
 # Changelog
 
+## v27.2 (2026-11-10)
+
+* Reduced the default image to Void's desktop foundation and the Abyss suckless packages. Browsers, editors, audio, Bluetooth, virtualization, containers, media, and creative apps install only when selected.
+* Added a dmenu software window with Void package search and official current-version installers for VS Code, ArtCraft Launcher, Ollama, Claude Code, OpenCode, Cursor, and vendor download pages.
+* Added first-run keyboard, optional repository, and runit service setup.
+* Added network, battery, and optional PipeWire volume indicators; monitor profiles, refresh-rate selection, and optional OLED screen blanking.
+* Fixed the stray Rofi config terminator and widened/centered the LightDM login fields.
+* Removed default startup of SSH, Docker, and Ollama services.
+* Added editable dwm shortcuts, conflict detection, screenshot actions, and the nsxiv image viewer with the `img` command.
+* Fixed VS Code and other oversized floating dialogs, narrow GTK file chooser sidebars, and discovery of user-installed VS Code.
+* Added automatic text sizing and a timed rollback for text-size changes; resolved a package conflict with Void’s login greeter.
+
 ## v27.1 (2026-10-21)
 
 ISOs: `abyss-linux-27.1-aarch64.iso`, `abyss-linux-27.1-x86_64.iso`

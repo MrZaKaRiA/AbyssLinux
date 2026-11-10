@@ -61,18 +61,18 @@ cd /build/void-mklive
 
 PKGS_INSTALLER="dialog parted gdisk cryptsetup lvm2 mdadm xtools-minimal xmirror dosfstools efibootmgr grub grub-arm64-efi"
 PKGS_INPUT="xf86-input-libinput xf86-input-evdev xorg-input-drivers"
-# Abyss menu (xmenu + xdotool), hotkeys, keyboard tools, doas, basic apps
-# (mpv player, vim editor, lf file manager + previews, rofi launcher, dunst)
-PKGS_ABYSS="xmenu xdotool sxhkd setxkbmap xrdb xmodmap xev opendoas mpv vim lf rofi dunst file chafa tumbler xdg-user-dirs"
-# Graphical boot: plymouth splash from the initramfs, LightDM greeter on top of it
-PKGS_ABYSS="${PKGS_ABYSS} plymouth lightdm lightdm-gtk-greeter"
+# The installed image is intentionally small: system plumbing, networking,
+# the LightDM login, Xorg, and Abyss's suckless desktop. User applications are
+# offered by abyss-software after boot.
+PKGS_ABYSS="setxkbmap xrdb xmodmap xev opendoas curl ca-certificates"
+PKGS_ABYSS="${PKGS_ABYSS} lightdm lightdm-gtk-greeter"
 # Abyss builds of the suckless tools, from the signed Abyss PMR
 # (https://github.com/MrZaKaRiA/AbyssLinuxPMR); they replace Void's st/dwm/dmenu
 ABYSS_PMR="${ABYSS_PMR:-https://mrzakaria.github.io/AbyssLinuxPMR/current}"
-PKGS_SUCKLESS="abyss-dwm abyss-st abyss-dmenu abyss-slock abyss-tabbed abyss-wmname abyss-theme"
+PKGS_SUCKLESS="abyss-dwm abyss-st abyss-dmenu abyss-slock abyss-tabbed abyss-wmname abyss-theme nsxiv"
 
 # Silent boot (later loglevel= overrides mklive's built-in loglevel=4)
-ABYSS_BOOT_CMDLINE="quiet splash loglevel=3 rd.udev.log_level=3 udev.log_level=3 vt.global_cursor_default=0"
+ABYSS_BOOT_CMDLINE="quiet loglevel=3 rd.udev.log_level=3 udev.log_level=3 vt.global_cursor_default=0"
 ABYSS_POSTSETUP=/workspace/builder/abyss-postsetup.sh
 # Abyss GRUB background instead of Void's data/splash.png
 export SPLASH_IMAGE=/workspace/custom-overlay/usr/share/backgrounds/abyss/abyss-splash.png
@@ -80,16 +80,10 @@ export SPLASH_IMAGE=/workspace/custom-overlay/usr/share/backgrounds/abyss/abyss-
 # (text consoles stay on tty2-tty6). mklive reads this from the environment.
 export DEFAULT_SERVICE_LIST="agetty-tty2 agetty-tty3 agetty-tty4 agetty-tty5 agetty-tty6 udevd"
 
-PKGS_CORE="base-system base-devel git curl wget xorg-minimal xf86-video-fbdev ${PKGS_INPUT} ${PKGS_INSTALLER} ${PKGS_ABYSS} xinit xsetroot xrandr arandr pavucontrol feh libX11-devel libXft-devel libXinerama-devel mesa-dri vulkan-loader NetworkManager network-manager-applet pipewire wireplumber dbus elogind polkit dunst libnotify ${PKGS_SUCKLESS} alacritty nerd-fonts-symbols-ttf font-firacode dejavu-fonts-ttf vpm vsv eza bat btop fastfetch fzf ripgrep fd jq bash-completion sudo openssh fuse-sshfs rsync filezilla Thunar thunar-volman gvfs zenity xclip firefox chromium vscode nodejs python3 python3-pip go gcc clang make cmake pkg-config docker docker-compose docker-buildx qemu libvirt virt-manager bridge-utils ollama flatpak gimp inkscape krita blender darktable"
-SERVICES="dbus elogind polkit NetworkManager sshd lightdm docker libvirtd virtlogd ollama"
-
-if [ "${FAST_ISO:-1}" = "1" ]; then
-    PKGS_BUILD="base-system git curl wget xorg-minimal xf86-video-fbdev ${PKGS_INPUT} ${PKGS_INSTALLER} ${PKGS_ABYSS} xinit xsetroot xrandr arandr pavucontrol feh mesa-dri NetworkManager network-manager-applet pipewire wireplumber dbus elogind polkit dunst libnotify ${PKGS_SUCKLESS} alacritty nerd-fonts-symbols-ttf font-firacode dejavu-fonts-ttf eza bat btop fastfetch fzf ripgrep fd jq bash-completion sudo openssh fuse-sshfs rsync Thunar zenity xclip"
-    SERVICES_BUILD="dbus elogind polkit NetworkManager sshd lightdm ollama"
-else
-    PKGS_BUILD="$PKGS_CORE"
-    SERVICES_BUILD="$SERVICES"
-fi
+PKGS_BUILD="base-system curl ca-certificates xorg-minimal xf86-video-fbdev ${PKGS_INPUT} ${PKGS_INSTALLER} ${PKGS_ABYSS} xinit xsetroot xset xrandr mesa-dri dbus elogind polkit NetworkManager ${PKGS_SUCKLESS} font-jetbrains-mono-ttf nerd-fonts-symbols-ttf"
+SERVICES_BUILD="dbus elogind polkit NetworkManager lightdm"
+build_failed=0
+rm -f /workspace/.abyss-build-result
 
 if [ ! -f /workspace/void-suckless-dev-aarch64.iso ] || [ "${FORCE_REBUILD:-0}" = "1" ]; then
     echo "=== [1/2] Building ARM64 (aarch64) ISO for Apple Silicon / Lumen.app ==="
@@ -104,17 +98,20 @@ if [ ! -f /workspace/void-suckless-dev-aarch64.iso ] || [ "${FORCE_REBUILD:-0}" 
         -S "$SERVICES_BUILD" \
         -C "$ABYSS_BOOT_CMDLINE" \
         -x "$ABYSS_POSTSETUP" \
-        -T "Abyss Linux Suckless Developer Workstation"; then
+        -T "Abyss Linux Minimal Suckless Desktop" \
+        && [ -s /build/void-suckless-dev-aarch64.iso ]; then
 
         # unlink first: a VM that has the old ISO open keeps reading the old file
-        rm -f /workspace/void-suckless-dev-aarch64.iso
-        cp -f /build/void-suckless-dev-aarch64.iso /workspace/void-suckless-dev-aarch64.iso
-        rm -f /workspace/void-suckless-dev.iso
-        ln /workspace/void-suckless-dev-aarch64.iso /workspace/void-suckless-dev.iso 2>/dev/null || \
-            cp -f /workspace/void-suckless-dev-aarch64.iso /workspace/void-suckless-dev.iso
-        echo "✅ Saved void-suckless-dev-aarch64.iso and void-suckless-dev.iso"
+        if cp /build/void-suckless-dev-aarch64.iso /workspace/.abyss-aarch64.iso.tmp &&
+           mv -f /workspace/.abyss-aarch64.iso.tmp /workspace/void-suckless-dev-aarch64.iso; then
+            echo "✅ Saved void-suckless-dev-aarch64.iso"
+        else
+            echo "❌ Could not save ARM64 ISO"
+            build_failed=1
+        fi
     else
         echo "❌ Failed to build ARM64 ISO"
+        build_failed=1
     fi
 else
     echo "=== [1/2] void-suckless-dev-aarch64.iso already exists, skipping to x86_64 build ==="
@@ -133,16 +130,22 @@ if [ "${BUILD_X86_64:-1}" = "1" ] && { [ ! -f /workspace/void-suckless-dev-x86_6
         -S "$SERVICES_BUILD" \
         -C "$ABYSS_BOOT_CMDLINE" \
         -x "$ABYSS_POSTSETUP" \
-        -T "Abyss Linux Suckless Developer Workstation" \
+        -T "Abyss Linux Minimal Suckless Desktop" \
         && [ -s /build/void-suckless-dev-x86_64.iso ]; then
         # unlink first: a VM that has the old ISO open keeps reading the old file
-        rm -f /workspace/void-suckless-dev-x86_64.iso
-        cp -f /build/void-suckless-dev-x86_64.iso /workspace/void-suckless-dev-x86_64.iso
-        echo "✅ Saved void-suckless-dev-x86_64.iso"
+        if cp /build/void-suckless-dev-x86_64.iso /workspace/.abyss-x86_64.iso.tmp &&
+           mv -f /workspace/.abyss-x86_64.iso.tmp /workspace/void-suckless-dev-x86_64.iso; then
+            echo "✅ Saved void-suckless-dev-x86_64.iso"
+        else
+            echo "❌ Could not save x86_64 ISO"
+            build_failed=1
+        fi
     else
         echo "❌ Failed to build x86_64 ISO (previous ISO left in place)"
+        build_failed=1
     fi
 fi
 
+printf '%s\n' "$build_failed" > /workspace/.abyss-build-result
 sync
 poweroff -f
