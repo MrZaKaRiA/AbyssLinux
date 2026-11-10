@@ -1,0 +1,51 @@
+#!/bin/sh
+# Repair an unusably narrow Thunar sidebar once, without resetting later choices.
+# Seed common folders only when the user has no existing GTK bookmarks file.
+[ -n "${DBUS_SESSION_BUS_ADDRESS:-}" ] || exit 0
+command -v thunar >/dev/null 2>&1 || exit 0
+state="${XDG_CONFIG_HOME:-$HOME/.config}/abyss"
+mkdir -p "$state" || exit 0
+
+if [ ! -e "$state/thunar-sidebar-v1" ] && command -v xfconf-query >/dev/null 2>&1; then
+    dpi=$(xrdb -query 2>/dev/null | awk '$1 == "Xft.dpi:" {print int($2); exit}')
+    case "$dpi" in ''|*[!0-9]*) dpi=96 ;; esac
+    [ "$dpi" -ge 48 ] && [ "$dpi" -le 300 ] || dpi=96
+    desired=$((240 * dpi / 96))
+    # Leave room for the file view on smaller or lower-resolution screens.
+    screen=$(xrandr --listactivemonitors 2>/dev/null | awk 'NR==2 {split($3,a,"/"); print a[1]; exit}')
+    case "$screen" in ''|*[!0-9]*) screen=0 ;; esac
+    if [ "$screen" -ge 600 ] && [ "$desired" -gt $((screen / 3)) ]; then desired=$((screen / 3)); fi
+    [ "$desired" -ge 180 ] || desired=180
+    width=$(xfconf-query -c thunar -p /last-separator-position 2>/dev/null) || width=
+    ok=1
+    case "$width" in
+        '') xfconf-query -c thunar -p /last-separator-position -n -t int -s "$desired" >/dev/null 2>&1 || ok=0 ;;
+        *[!0-9]*) ok=0 ;;
+        *) if [ "$width" -lt $((desired * 3 / 4)) ]; then
+               xfconf-query -c thunar -p /last-separator-position -s "$desired" >/dev/null 2>&1 || ok=0
+           fi ;;
+    esac
+    [ "$ok" = 0 ] || : > "$state/thunar-sidebar-v1"
+fi
+
+if [ ! -e "$state/thunar-bookmarks-v1" ] && command -v xdg-user-dir >/dev/null 2>&1 && command -v gio >/dev/null 2>&1; then
+    bookmarks="${XDG_CONFIG_HOME:-$HOME/.config}/gtk-3.0/bookmarks"
+    if [ ! -e "$bookmarks" ] && [ ! -e "$HOME/.gtk-bookmarks" ]; then
+        mkdir -p "${bookmarks%/*}" || exit 0
+        tmp=$(mktemp "${bookmarks}.abyss.XXXXXX") || exit 0
+        for folder in DOCUMENTS DOWNLOAD PICTURES MUSIC VIDEOS; do
+            dir=$(xdg-user-dir "$folder" 2>/dev/null) || continue
+            [ -d "$dir" ] && [ "$dir" != "$HOME" ] || continue
+            uri=$(gio info -a standard::type "$dir" 2>/dev/null | sed -n 's/^uri: //p' | head -1)
+            case "$uri" in file://*) printf '%s\n' "$uri" >> "$tmp" ;; esac
+        done
+        if [ -s "$tmp" ]; then
+            # A hard link creates the file atomically without replacing one
+            # created by the user or another application in the meantime.
+            ln "$tmp" "$bookmarks" 2>/dev/null || :
+        fi
+        rm -f "$tmp"
+        [ -e "$bookmarks" ] || exit 0
+    fi
+    : > "$state/thunar-bookmarks-v1"
+fi

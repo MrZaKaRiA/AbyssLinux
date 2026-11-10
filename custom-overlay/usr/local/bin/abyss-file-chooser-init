@@ -1,6 +1,8 @@
 #!/bin/sh
 # Repair one previously saved, unusably narrow GTK file chooser sidebar.
 # Each schema is migrated once; subsequent user adjustments are left alone.
+# Thunar uses xfconf rather than GTK's file-chooser settings.
+command -v abyss-thunar-init >/dev/null 2>&1 && abyss-thunar-init
 command -v gsettings >/dev/null 2>&1 || exit 0
 [ -n "${DBUS_SESSION_BUS_ADDRESS:-}" ] || exit 0
 state="${XDG_CONFIG_HOME:-$HOME/.config}/abyss"
