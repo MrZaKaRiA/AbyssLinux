@@ -1,6 +1,13 @@
 name: Build candidate ISO images
 on:
   workflow_dispatch:
+    inputs:
+      architecture:
+        description: Architecture to build (one ISO at a time)
+        required: true
+        type: choice
+        default: aarch64
+        options: [aarch64, x86_64]
   pull_request:
     paths:
       - 'VERSION'
@@ -17,8 +24,9 @@ jobs:
     timeout-minutes: 120
     strategy:
       fail-fast: false
+      max-parallel: 1
       matrix:
-        arch: [aarch64, x86_64]
+        arch: ${{ fromJSON(github.event_name == 'workflow_dispatch' && format('["{0}"]', inputs.architecture) || '["aarch64","x86_64"]') }}
     container:
       image: ghcr.io/void-linux/void-mklive:20250116R1
       options: --privileged

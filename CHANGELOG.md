@@ -1,5 +1,10 @@
 # Changelog
 
+## v27.3 (2026-11-10)
+
+* Improved the Thunar sidebar and theme, with a one-time HiDPI width repair and folder shortcuts when no bookmarks exist.
+* Made GTK 4 and libadwaita file dialogs use Abyss’s dark appearance by default.
+
 ## v27.2 (2026-11-10)
 
 * Reduced the default image to Void's desktop foundation and the Abyss suckless packages. Browsers, editors, audio, Bluetooth, virtualization, containers, media, and creative apps install only when selected.
