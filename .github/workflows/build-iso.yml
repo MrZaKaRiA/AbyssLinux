@@ -29,6 +29,19 @@ jobs:
       - name: Prepare build container
         shell: sh
         run: xbps-install -Syu xbps && xbps-install -yu && xbps-install -y xorriso squashfs-tools
+      - name: Wait for published package update
+        shell: bash
+        run: |
+          repo=https://mrzakaria.github.io/AbyssLinuxPMR/current
+          for attempt in $(seq 1 90); do
+            if curl -fsI "$repo/abyss-desktop-1.0_19.${{ matrix.arch }}.xbps" >/dev/null && \
+               curl -fsI "$repo/abyss-theme-1.0_3.${{ matrix.arch }}.xbps" >/dev/null; then
+              exit 0
+            fi
+            sleep 10
+          done
+          echo 'Required signed PMR packages were not published in time' >&2
+          exit 1
       - name: Build image
         shell: bash
         run: bash builder/build-one-ci.sh '${{ matrix.arch }}'
