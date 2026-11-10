@@ -53,7 +53,7 @@ jobs:
           test -n "$file" && test -s "$file"
           xorriso -indev "$file" -find / -type f -exec lsdl -- > out/iso-files.txt
           grep -i 'squashfs.img' out/iso-files.txt
-          grep -i 'EFI/BOOT/BOOT' out/iso-files.txt
+          xorriso -indev "$file" -report_el_torito plain 2>&1 | grep -i 'UEFI'
           (cd out && sha256sum *.iso > SHA256SUMS)
       - name: Audit installed packages and overlay
         shell: bash
