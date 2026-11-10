@@ -28,7 +28,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Prepare build container
         shell: sh
-        run: xbps-install -Syu xbps && xbps-install -yu && xbps-install -y xorriso squashfs-tools
+        run: xbps-install -Syu xbps && xbps-install -yu && xbps-install -y curl xorriso squashfs-tools
       - name: Wait for published package update
         shell: bash
         run: |
