@@ -4,6 +4,11 @@
 # Runs the user's ~/.xinitrc, the same file startx uses, so there is a single
 # place to customise the session. Falls back to the stock one from /etc/skel.
 # ==============================================================================
+# GTK 4/libadwaita does not use GTK 3's dark-theme setting. Abyss ships a
+# dark desktop, so provide a lightweight default for libadwaita dialogs too.
+# Honour an explicit user choice (including prefer-light) without a portal.
+: "${ADW_DEBUG_COLOR_SCHEME:=prefer-dark}"
+export ADW_DEBUG_COLOR_SCHEME
 if [ -f "$HOME/.xinitrc" ]; then
     exec /bin/sh "$HOME/.xinitrc"
 fi

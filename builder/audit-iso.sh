@@ -28,6 +28,6 @@ fi
 version=$(tr -d ' \n' < "$(dirname "$0")/../VERSION")
 grep -Fx "VERSION_ID=\"$version\"" "$work/root/usr/lib/os-release"
 grep -q 'Text size: automatic' "$work/root/usr/local/bin/abyss-control-center"
-xbps-query -r "$work/root" -p pkgver abyss-desktop | grep -Fx 'abyss-desktop-1.0_19'
+xbps-query -r "$work/root" -p pkgver abyss-desktop | grep -Fx 'abyss-desktop-1.0_20'
 xbps-query -r "$work/root" -p pkgver abyss-theme | grep -Fx 'abyss-theme-1.0_3' 
 echo 'Installed packages and overlay: PASS'
