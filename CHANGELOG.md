@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased — 27.2 candidate
+## v27.2 (2026-11-10)
 
 * Reduced the default image to Void's desktop foundation and the Abyss suckless packages. Browsers, editors, audio, Bluetooth, virtualization, containers, media, and creative apps install only when selected.
 * Added a dmenu software window with Void package search and official current-version installers for VS Code, ArtCraft Launcher, Ollama, Claude Code, OpenCode, Cursor, and vendor download pages.
@@ -10,6 +10,7 @@
 * Removed default startup of SSH, Docker, and Ollama services.
 * Added editable dwm shortcuts, conflict detection, screenshot actions, and the nsxiv image viewer with the `img` command.
 * Fixed VS Code and other oversized floating dialogs, narrow GTK file chooser sidebars, and discovery of user-installed VS Code.
+* Added automatic text sizing and a timed rollback for text-size changes; resolved a package conflict with Void’s login greeter.
 
 ## v27.1 (2026-10-21)
 
