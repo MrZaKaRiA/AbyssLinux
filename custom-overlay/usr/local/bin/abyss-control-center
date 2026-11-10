@@ -151,9 +151,10 @@ EOF
 		󰍹  Resolution and refresh rate	display-gui
 		󰍺  Detect displays again	display-auto
 		󰖨  OLED screen blanking: toggle 10 min	oled-toggle
-		  Text size: normal	dpi-96
-		  Text size: large	dpi-144
-		  Text size: extra large	dpi-192
+		  Text size: automatic (recommended)	dpi-auto
+		  Text size: 100% (96 DPI)	dpi-96
+		  Text size: 150% (144 DPI)	dpi-144
+		  Text size: 200% (192 DPI)	dpi-192
 	󰌌  Keyboard
 		󰌌  First-run setup / keyboard layout	setup
 		󰘳  __KEYBOARD_SWAP_LABEL__	kbd-swap
@@ -214,11 +215,37 @@ choose() {
     fi
 }
 
+automatic_dpi() {
+    apple_vm=
+    grep -qs '^Apple' /sys/class/dmi/id/sys_vendor && apple_vm=1
+    grep -qsx '0x106b' /sys/bus/pci/devices/*/subsystem_vendor && apple_vm=1
+    h=$(xrandr --query 2>/dev/null | awk '$2 == "connected" {for(i=3;i<=NF;i++) if ($i ~ /^[0-9]+x[0-9]+[+-]/) {v=$i; sub(/[+-].*/, "", v); split(v,a,"x"); if (a[2] > h) h=a[2]}} END {print h+0}')
+    if [ -n "$apple_vm" ] || [ "${h:-0}" -ge 1700 ]; then echo 192
+    elif [ "${h:-0}" -ge 1300 ]; then echo 144
+    else echo 96; fi
+}
+
+apply_dpi() {
+    printf 'Xft.dpi: %s\nxmenu.width: %s\nxmenu.height: %s\n' "$1" $((260 * $1 / 96)) $((28 * $1 / 96)) | xrdb -merge
+}
+
 set_dpi() {
-    mkdir -p "$HOME/.config/abyss"
-    echo "$1" > "$HOME/.config/abyss/dpi"
-    printf 'Xft.dpi: %s\nxmenu.width: %s\nxmenu.height: %s\n' "$1" $(( 260 * $1 / 96 )) $(( 28 * $1 / 96 )) | xrdb -merge
-    notify "Text size set" "New windows use it now; the bar and open apps after you log out and back in."
+    choice=$1
+    old_dpi=$DPI
+    [ "$choice" = auto ] && new_dpi=$(automatic_dpi) || new_dpi=$choice
+    apply_dpi "$new_dpi" || { notify "Text size" "Could not change X resources."; return 1; }
+    # Preview first; only persist the new setting after explicit confirmation.
+    # Closing the menu or letting it time out restores the previous DPI.
+    answer=$(printf 'Keep this size\nRevert to previous size\n' | timeout 20s dmenu -i -c -l 2 -fn "$FONT" -nb "$NB" -nf "$NF" -sb "$SB" -sf "$SF" -p 'Keep text size? Reverts in 20 seconds' 2>/dev/null) || answer=
+    if [ "$answer" = 'Keep this size' ]; then
+        mkdir -p "$HOME/.config/abyss"
+        if [ "$choice" = auto ]; then rm -f "$HOME/.config/abyss/dpi"
+        else printf '%s\n' "$new_dpi" > "$HOME/.config/abyss/dpi"; fi
+        notify "Text size saved" "New windows use the new size. Log out and back in for the bar and open apps."
+    else
+        apply_dpi "$old_dpi"
+        notify "Text size restored" "The previous size was kept."
+    fi
 }
 
 act() {
@@ -285,7 +312,7 @@ act() {
                           echo 1 > "$conf"; xset s 600 600; xset +dpms; xset dpms 600 600 600
                           notify "OLED blanking on" "The screen blanks after 10 minutes idle; move the mouse or press a key to wake it."
                       fi ;;
-        dpi-96|dpi-144|dpi-192) set_dpi "${1#dpi-}" ;;
+        dpi-auto|dpi-96|dpi-144|dpi-192) set_dpi "${1#dpi-}" ;;
         kbd-toggle)   abyss-keyboard --toggle ;;
         kbd-swap)     abyss-keyboard --swap-super ;;
         kbd-test)     abyss-keyboard --test ;;

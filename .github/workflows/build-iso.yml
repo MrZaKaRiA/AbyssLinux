@@ -28,7 +28,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Prepare build container
         shell: sh
-        run: xbps-install -Syu xbps && xbps-install -yu
+        run: xbps-install -Syu xbps && xbps-install -yu && xbps-install -y xorriso squashfs-tools
       - name: Build image
         shell: bash
         run: bash builder/build-one-ci.sh '${{ matrix.arch }}'
@@ -42,6 +42,9 @@ jobs:
           grep -i 'squashfs.img' out/iso-files.txt
           grep -i 'EFI/BOOT/BOOT' out/iso-files.txt
           (cd out && sha256sum *.iso > SHA256SUMS)
+      - name: Audit installed packages and overlay
+        shell: bash
+        run: bash builder/audit-iso.sh "$(find out -name '*.iso' -type f -print -quit)"
       - uses: actions/upload-artifact@v4
         with:
           name: abyss-iso-${{ matrix.arch }}
