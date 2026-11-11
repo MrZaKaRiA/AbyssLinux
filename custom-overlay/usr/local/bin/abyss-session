@@ -9,6 +9,9 @@
 # Honour an explicit user choice (including prefer-light) without a portal.
 : "${ADW_DEBUG_COLOR_SCHEME:=prefer-dark}"
 export ADW_DEBUG_COLOR_SCHEME
+# Repair the historical broken config before the desktop starts so direct
+# rofi calls and old hotkeys benefit too, while leaving custom configs alone.
+command -v abyss-rofi-repair >/dev/null 2>&1 && abyss-rofi-repair >/dev/null 2>&1 || :
 if [ -f "$HOME/.xinitrc" ]; then
     exec /bin/sh "$HOME/.xinitrc"
 fi

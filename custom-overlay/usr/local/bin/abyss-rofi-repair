@@ -1,0 +1,36 @@
+#!/bin/sh
+# Fix only the specific duplicate stanza shipped in the original Abyss Rofi
+# config. Keep all other user changes, and never follow a config symlink.
+set -eu
+config="${XDG_CONFIG_HOME:-$HOME/.config}/rofi/config.rasi"
+[ -f "$config" ] && [ ! -L "$config" ] || exit 0
+backup=$(mktemp "${config}.abyss-backup.XXXXXX") || exit 1
+tmp=
+cleanup() { [ -z "$tmp" ] || rm -f "$tmp"; }
+trap cleanup EXIT HUP INT TERM
+if ! cp -p "$config" "$backup"; then rm -f "$backup"; exit 1; fi
+tmp=$(mktemp "${config}.abyss-repair.XXXXXX") || { rm -f "$backup"; exit 1; }
+cp -p "$backup" "$tmp" || { rm -f "$backup"; exit 1; }
+# Remove the malformed terminator and exact duplicate default font/terminal.
+# The valid closing brace remains; arbitrary user settings are left intact.
+awk '
+  /^[[:space:]]*}"?;[[:space:]]*$/ {
+    bad=$0
+    if ((getline font) <= 0) {print bad; next}
+    if ((getline term) <= 0) {print bad; print font; next}
+    if ((getline endline) <= 0) {print bad; print font; print term; next}
+    if (font ~ /^[[:space:]]*font:[[:space:]]*"JetBrainsMono Nerd Font 11";[[:space:]]*$/ &&
+        term ~ /^[[:space:]]*terminal:[[:space:]]*"st";[[:space:]]*$/ &&
+        endline ~ /^[[:space:]]*}[[:space:]]*$/) {
+      print endline
+    } else {print bad; print font; print term; print endline}
+    next
+  }
+  {print}
+' "$backup" > "$tmp" || { rm -f "$backup"; exit 1; }
+if cmp -s "$backup" "$tmp"; then rm -f "$backup"; exit 0; fi
+# Do not replace a file edited concurrently while the repair was being made.
+if ! cmp -s "$config" "$backup"; then rm -f "$backup"; exit 1; fi
+mv -f "$tmp" "$config"
+tmp=
+printf 'Repaired legacy Rofi configuration; original saved at %s\n' "$backup"
