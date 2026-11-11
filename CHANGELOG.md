@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+* Repair the malformed Rofi configuration shipped in older Abyss images while preserving user edits and backing up the original file.
+* Update the download links, release counter, and checksums in the README for 27.3.
+
 ## v27.3 (2026-11-10)
 
 * Improved the Thunar sidebar and theme, with a one-time HiDPI width repair and folder shortcuts when no bookmarks exist.

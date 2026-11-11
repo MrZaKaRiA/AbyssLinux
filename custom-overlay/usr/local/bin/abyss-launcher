@@ -6,12 +6,15 @@
 #   abyss-launcher run        any program in $PATH       menu > Run program
 #   abyss-launcher window     switch to an open window   Super+Alt+w
 #
-# Falls back to a known-good Abyss Rofi config if a user's config is invalid,
+# Falls back to a known-good Abyss Rofi config for the historical broken default,
 # then to dmenu_run when Rofi is not installed.
 # ==============================================================================
 
 PATH="/usr/local/bin:${PATH}"
 mode="${1:-drun}"
+# Repair the known historical default before any Rofi invocation, including
+# launchers used without logging out after updating abyss-desktop.
+command -v abyss-rofi-repair >/dev/null 2>&1 && abyss-rofi-repair >/dev/null 2>&1 || :
 
 dpi=$(xrdb -query 2>/dev/null | awk '$1 == "Xft.dpi:" {print int($2); exit}')
 
@@ -30,12 +33,6 @@ if command -v rofi >/dev/null 2>&1; then
         exec rofi -no-config -show "$mode" ${dpi:+-dpi "$dpi"}
     fi
 
-    if [ -r "$user_config" ] && ! rofi -config "$user_config" -dump-config >/dev/null 2>&1; then
-        if [ -r "$system_config" ]; then
-            exec rofi -config "$system_config" -show "$mode" ${dpi:+-dpi "$dpi"}
-        fi
-        exec rofi -no-config -show "$mode" ${dpi:+-dpi "$dpi"}
-    fi
     exec rofi -show "$mode" ${dpi:+-dpi "$dpi"}
 fi
 

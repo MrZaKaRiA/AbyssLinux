@@ -18,6 +18,7 @@ done
 grep -q 'repository=https://mrzakaria.github.io/AbyssLinuxPMR/current' "$work/root/etc/xbps.d/20-abyss-pmr.conf"
 test -x "$work/root/usr/bin/abyss-key-capture"
 test -x "$work/root/usr/local/bin/abyss-file-chooser-init"
+test -x "$work/root/usr/local/bin/abyss-rofi-repair"
 test -x "$work/root/usr/local/bin/abyss-thunar-init"
 grep -Fq 'ADW_DEBUG_COLOR_SCHEME' "$work/root/usr/local/bin/abyss-session"
 grep -Fq '.thunar .shortcuts-pane' "$work/root/usr/share/themes/Abyss/gtk-3.0/gtk.css"
@@ -31,6 +32,6 @@ fi
 version=$(tr -d ' \n' < "$(dirname "$0")/../VERSION")
 grep -Fx "VERSION_ID=\"$version\"" "$work/root/usr/lib/os-release"
 grep -q 'Text size: automatic' "$work/root/usr/local/bin/abyss-control-center"
-xbps-query -r "$work/root" -p pkgver abyss-desktop | grep -Fx 'abyss-desktop-1.0_21'
+xbps-query -r "$work/root" -p pkgver abyss-desktop | grep -Fx 'abyss-desktop-1.0_22'
 xbps-query -r "$work/root" -p pkgver abyss-theme | grep -Fx 'abyss-theme-1.0_4'
 echo 'Installed packages and overlay: PASS'

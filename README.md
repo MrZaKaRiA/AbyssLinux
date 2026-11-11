@@ -21,7 +21,7 @@
 
 - [The story](#the-story)
 - [Why Void Linux and suckless fit together](#why-void-linux-and-suckless-fit-together)
-- [Download v27.1](#download-v271)
+- [Download v27.3](#download-v273)
 - [Install](#install)
 - [The desktop](#the-desktop)
 - [Keyboard and mouse](#keyboard-and-mouse)
@@ -75,19 +75,19 @@ Void already packages the suckless tools. Its `xbps-src` system makes it easy to
 
 ---
 
-## Download v27.1
+## Download v27.3
 
 <p align="center">
   <a href="https://github.com/MrZaKaRiA/AbyssLinux/releases"><img alt="Total downloads" src="https://img.shields.io/github/downloads/MrZaKaRiA/AbyssLinux/total?style=for-the-badge&label=total%20downloads&color=a855f7&logo=linux&logoColor=white"></a>
-  <a href="https://github.com/MrZaKaRiA/AbyssLinux/releases/tag/v27.1"><img alt="v27.1 downloads" src="https://img.shields.io/github/downloads/MrZaKaRiA/AbyssLinux/v27.1/total?style=for-the-badge&label=v27.1%20downloads&color=7c3aed"></a>
+  <a href="https://github.com/MrZaKaRiA/AbyssLinux/releases/tag/v27.3"><img alt="v27.3 downloads" src="https://img.shields.io/github/downloads/MrZaKaRiA/AbyssLinux/v27.3/total?style=for-the-badge&label=v27.3%20downloads&color=7c3aed"></a>
 </p>
 
 | File | Architecture | For | Size | SHA-256 |
 |---|---|---|---|---|
-| [`abyss-linux-27.1-aarch64.iso`](https://github.com/MrZaKaRiA/AbyssLinux/releases/download/v27.1/abyss-linux-27.1-aarch64.iso) | ARM64 (aarch64), UEFI | Apple Silicon Macs (Apple Virtualization, UTM, Parallels, QEMU), ARM64 servers and boards with UEFI | 1.62 GiB | `50707aae83246c3462a43b479795db075bb3f606aed3f56c0a76e7730609f4f7` |
-| [`abyss-linux-27.1-x86_64.iso`](https://github.com/MrZaKaRiA/AbyssLinux/releases/download/v27.1/abyss-linux-27.1-x86_64.iso) | x86-64, UEFI and BIOS | PCs, laptops, VirtualBox, VMware, QEMU/KVM, Hyper-V | 1.64 GiB | `ed8c50ef449a5ab9c05ac7b44ce2f91db942d073fb59ba2820c0b3b7b7e0cf97` |
+| [`abyss-linux-27.3-aarch64.iso`](https://github.com/MrZaKaRiA/AbyssLinux/releases/download/v27.3/abyss-linux-27.3-aarch64.iso) | ARM64 (aarch64), UEFI | Apple Silicon Macs (Apple Virtualization, UTM, Parallels, QEMU), ARM64 servers and boards with UEFI | 1.38 GiB | `ee190bbd21ccb7e5b11fb77ab1f390116df88d2456b408460ed6ceb27320897a` |
+| [`abyss-linux-27.3-x86_64.iso`](https://github.com/MrZaKaRiA/AbyssLinux/releases/download/v27.3/abyss-linux-27.3-x86_64.iso) | x86-64, UEFI and BIOS | PCs, laptops, VirtualBox, VMware, QEMU/KVM, Hyper-V | 1.39 GiB | `f704e7622eb10055e5ea5a05040ffb9294d8096c6f46a2db18ab667b42482bd0` |
 
-[`SHA256SUMS`](https://github.com/MrZaKaRiA/AbyssLinux/releases/download/v27.1/SHA256SUMS) · [what's new in 27.1](https://github.com/MrZaKaRiA/AbyssLinux/releases/tag/v27.1) · [older releases](https://github.com/MrZaKaRiA/AbyssLinux/releases)
+[`SHA256SUMS`](https://github.com/MrZaKaRiA/AbyssLinux/releases/download/v27.3/SHA256SUMS) · [what's new in 27.3](https://github.com/MrZaKaRiA/AbyssLinux/releases/tag/v27.3) · [older releases](https://github.com/MrZaKaRiA/AbyssLinux/releases)
 
 Verify a download:
 
@@ -98,13 +98,15 @@ shasum -a 256 -c SHA256SUMS        # macOS
 
 **Requirements:** 2 CPU cores, 2 GB RAM (4 GB recommended), 16 GB disk, UEFI firmware (aarch64) or UEFI/BIOS (x86_64). In a VM, give it a virtio GPU, virtio disk and virtio network if you can.
 
-**Live session:** boots through the Abyss splash straight into the desktop as user `anon` (password `voidlinux`; root password `voidlinux`). The hostname is `abyss-live` and the ISO label is `ABYSS_LIVE`.
+**ARM boot note:** In QEMU, the ARM image displayed missing GRUB `usbms` and `usb_keyboard` module warnings before continuing to the desktop. Boot-menu keyboard behavior on physical ARM hardware has not been verified.
+
+**Live session:** boots into the desktop as user `anon` (password `voidlinux`; root password `voidlinux`). The hostname is `abyss-live` and the ISO label is `ABYSS_LIVE`.
 
 ---
 
 ## Install
 
-1. Boot the ISO. The boot is silent (no GRUB menu; hold **Esc** or **Shift** to see it) and lands on the desktop.
+1. Boot the ISO and wait for the live desktop. Boot-menu appearance depends on the firmware and boot mode.
 2. Click **Menu** (top-right) → **Install Abyss Linux**. The installer opens in its own large terminal window with a dark, high-contrast theme.
 3. Set **Hostname**, **RootPassword** and **UserAccount**, then choose **Partition → auto**. This creates:
    * a GPT table,
@@ -243,10 +245,10 @@ The full list with file modes is in [docs/abyss-overlay.md](docs/abyss-overlay.m
 
 ## Updates and the Abyss package repository (PMR)
 
-Abyss is a rolling release. One command updates everything: the Void base, the applications, and the Abyss suckless builds.
+Abyss is a rolling release. One command updates XBPS-managed packages from Void and the Abyss PMR. Apps installed directly from vendors may need their own update method.
 
 ```sh
-sudo xbps-install -Su
+doas xbps-install -Su
 ```
 
 The suckless tools come from the **[Abyss Linux PMR](https://github.com/MrZaKaRiA/AbyssLinuxPMR)**. It's a signed XBPS repository, built from public `xbps-src` templates by GitHub Actions and hosted on GitHub Pages:
