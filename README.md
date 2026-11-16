@@ -21,7 +21,7 @@
 
 - [The story](#the-story)
 - [Why Void Linux and suckless fit together](#why-void-linux-and-suckless-fit-together)
-- [Download v27.3](#download-v273)
+- [Download v27.3.2](#download-v2732)
 - [Install](#install)
 - [The desktop](#the-desktop)
 - [Keyboard and mouse](#keyboard-and-mouse)
@@ -75,19 +75,19 @@ Void already packages the suckless tools. Its `xbps-src` system makes it easy to
 
 ---
 
-## Download v27.3
+## Download v27.3.2
 
 <p align="center">
   <a href="https://github.com/MrZaKaRiA/AbyssLinux/releases"><img alt="Total downloads" src="https://img.shields.io/github/downloads/MrZaKaRiA/AbyssLinux/total?style=for-the-badge&label=total%20downloads&color=a855f7&logo=linux&logoColor=white"></a>
-  <a href="https://github.com/MrZaKaRiA/AbyssLinux/releases/tag/v27.3"><img alt="v27.3 downloads" src="https://img.shields.io/github/downloads/MrZaKaRiA/AbyssLinux/v27.3/total?style=for-the-badge&label=v27.3%20downloads&color=7c3aed"></a>
+  <a href="https://github.com/MrZaKaRiA/AbyssLinux/releases/tag/v27.3.2"><img alt="v27.3.2 downloads" src="https://img.shields.io/github/downloads/MrZaKaRiA/AbyssLinux/v27.3.2/total?style=for-the-badge&label=v27.3.2%20downloads&color=7c3aed"></a>
 </p>
 
 | File | Architecture | For | Size | SHA-256 |
 |---|---|---|---|---|
-| [`abyss-linux-27.3-aarch64.iso`](https://github.com/MrZaKaRiA/AbyssLinux/releases/download/v27.3/abyss-linux-27.3-aarch64.iso) | ARM64 (aarch64), UEFI | Apple Silicon Macs (Apple Virtualization, UTM, Parallels, QEMU), ARM64 servers and boards with UEFI | 1.38 GiB | `ee190bbd21ccb7e5b11fb77ab1f390116df88d2456b408460ed6ceb27320897a` |
-| [`abyss-linux-27.3-x86_64.iso`](https://github.com/MrZaKaRiA/AbyssLinux/releases/download/v27.3/abyss-linux-27.3-x86_64.iso) | x86-64, UEFI and BIOS | PCs, laptops, VirtualBox, VMware, QEMU/KVM, Hyper-V | 1.39 GiB | `f704e7622eb10055e5ea5a05040ffb9294d8096c6f46a2db18ab667b42482bd0` |
+| [`abyss-linux-27.3.2-aarch64.iso`](https://github.com/MrZaKaRiA/AbyssLinux/releases/download/v27.3.2/abyss-linux-27.3.2-aarch64.iso) | ARM64 (aarch64), UEFI | Apple Silicon Macs (Apple Virtualization, UTM, Parallels, QEMU), ARM64 servers and boards with UEFI | 1.38 GiB | `26487460bc9a68b448f5ccaade38479803304767621c27f4edf89e8e716fbdb5` |
+| [`abyss-linux-27.3.2-x86_64.iso`](https://github.com/MrZaKaRiA/AbyssLinux/releases/download/v27.3.2/abyss-linux-27.3.2-x86_64.iso) | x86-64, UEFI and BIOS | PCs, laptops, VirtualBox, VMware, QEMU/KVM, Hyper-V | 1.39 GiB | `2c3960239a01aae39279472ad764ce0fd88f73b43070d7e43568c6033798ef25` |
 
-[`SHA256SUMS`](https://github.com/MrZaKaRiA/AbyssLinux/releases/download/v27.3/SHA256SUMS) · [what's new in 27.3](https://github.com/MrZaKaRiA/AbyssLinux/releases/tag/v27.3) · [older releases](https://github.com/MrZaKaRiA/AbyssLinux/releases)
+[`SHA256SUMS`](https://github.com/MrZaKaRiA/AbyssLinux/releases/download/v27.3.2/SHA256SUMS) · [what's new in 27.3.2](https://github.com/MrZaKaRiA/AbyssLinux/releases/tag/v27.3.2) · [older releases](https://github.com/MrZaKaRiA/AbyssLinux/releases)
 
 Verify a download:
 
