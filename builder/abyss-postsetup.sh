@@ -26,6 +26,19 @@ while IFS= read -r p; do
     fi
 done
 
+# Exception: /var/lib/lightdm is the lightdm user's home. The overlay only adds
+# the greeter's gtk.css there; the loop above made the directory root's, and
+# then the greeter cannot write its .Xauthority and exits (black login screen).
+if [ -d "$ROOTFS/var/lib/lightdm" ]; then
+    ld_ids="$(awk -F: '$1 == "lightdm" { print $3 ":" $4 }' "$ROOTFS/etc/passwd")"
+    if [ -n "$ld_ids" ]; then
+        chown -R "$ld_ids" "$ROOTFS/var/lib/lightdm"
+        echo "[abyss] /var/lib/lightdm owned by lightdm ($ld_ids)"
+    else
+        echo "[abyss] WARNING: no lightdm user, /var/lib/lightdm left as root" >&2
+    fi
+fi
+
 # Permissions
 for f in "$ROOTFS"/usr/local/bin/* "$ROOTFS"/usr/bin/void-installer \
          "$ROOTFS"/etc/skel/.xinitrc "$ROOTFS"/etc/skel/.dwm/autostart.sh "$ROOTFS"/etc/skel/.config/lf/preview \
