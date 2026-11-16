@@ -37,6 +37,21 @@ ADDUSER="$MK/dracut/vmklive/adduser.sh"
 [ -f "$ADDUSER" ] && sed -i 's/^echo void-live > /echo abyss-live > /' "$ADDUSER"
 echo "[abyss] live hostname: abyss-live"
 
+# Live user: root without a password through doas, the doas twin of the hook's
+# sudoers rule (the ISO ships doas, not sudo). The installer removes the line
+# again, so installed systems always ask for the user's password.
+if [ -f "$ADDUSER" ] && ! grep -q 'abyss-live-user' "$ADDUSER"; then
+    cat >> "$ADDUSER" <<'HOOK'
+
+# Abyss: passwordless doas for the live user only (removed by the installer)
+if [ -f ${NEWROOT}/etc/doas.conf ]; then
+    printf 'permit nopass %s # abyss-live-user\n' "$USERNAME" >> ${NEWROOT}/etc/doas.conf
+fi
+HOOK
+fi
+grep -q 'abyss-live-user' "$ADDUSER" || { echo "abyss-mklive-tweaks: could not add the live doas rule" >&2; exit 1; }
+echo "[abyss] live user: passwordless doas"
+
 # Abyss PMR signing key: mklive copies keys/*.plist into the image, so xbps
 # trusts the Abyss repository at build time and on the installed system
 KEYDIR="$(cd "$(dirname "$0")/../keys" && pwd)"

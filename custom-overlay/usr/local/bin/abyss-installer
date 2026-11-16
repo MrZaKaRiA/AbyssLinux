@@ -31,11 +31,21 @@ accent() {
 
 accent '\033]4;5;#a855f7\007'
 
+has() { command -v "$1" >/dev/null 2>&1; }
+
+# Password-free routes first (the live ISO sets one up for its user); ask only
+# when none exists. The live session's password is "voidlinux".
 if [ "$(id -u)" -eq 0 ]; then
     void-installer
-elif command -v doas >/dev/null 2>&1 && [ -e /etc/doas.conf ]; then
+elif has doas && doas -n true 2>/dev/null; then
     doas void-installer
-elif command -v sudo >/dev/null 2>&1; then
+elif has sudo && sudo -n true 2>/dev/null; then
+    sudo void-installer
+elif has doas && [ -e /etc/doas.conf ]; then
+    echo "Root rights are needed to install. Live session password: voidlinux"
+    doas void-installer
+elif has sudo; then
+    echo "Root rights are needed to install. Live session password: voidlinux"
     sudo void-installer
 else
     echo "abyss-installer: install doas or sudo to run the installer" >&2

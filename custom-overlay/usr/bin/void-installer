@@ -1546,6 +1546,8 @@ Root partition not empty! Aborting..." ${MSGBOXSIZE}
         echo "Removing $USERNAME live user from targetdir ..." >$LOG
         chroot $TARGETDIR userdel -r $USERNAME >$LOG 2>&1
         rm -f $TARGETDIR/etc/sudoers.d/99-void-live
+        # Abyss: drop the live user's passwordless doas rule as well
+        [ -f $TARGETDIR/etc/doas.conf ] && sed -i '/# abyss-live-user$/d' $TARGETDIR/etc/doas.conf
         # Abyss: the live tty1 conf autologins $USERNAME with extra flags, so
         # reset any GETTY_ARGS line to a plain login prompt (startx follows login)
         sed -i -E 's,^([[:space:]]*GETTY_ARGS=).*,\1"--noclear",' $TARGETDIR/etc/sv/agetty-tty1/conf
