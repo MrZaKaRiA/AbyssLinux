@@ -173,8 +173,7 @@ EOF
 		󰍺  Detect displays again	display-auto
 		󰇀  Pointer size	pointer-size
 		󰖨  OLED screen blanking: toggle 10 min	oled-toggle
-		󰖨  Wallpaper: Abyss	wallpaper-abyss
-		󰖨  Wallpaper: black (OLED)	wallpaper-none
+		󰖨  Wallpaper…	wallpapers
 		  Text size: automatic (recommended)	dpi-auto
 		  Text size: 100% (96 DPI)	dpi-96
 		  Text size: 150% (144 DPI)	dpi-144
@@ -413,6 +412,8 @@ act() {
         kbd-swap)     abyss-keyboard --swap-super ;;
         kbd-test)     abyss-keyboard --test ;;
         kbd-status)   notify "Keyboard" "$(abyss-keyboard --status 2>&1)" ;;
+        wallpapers)   if has abyss-wallpapers; then abyss-wallpapers
+                      else notify "Wallpaper" "Update Abyss to get the wallpaper manager."; fi ;;
         wallpaper)    abyss-wallpaper ;;
         wallpaper-abyss|wallpaper-none) abyss-wallpaper "${1#wallpaper-}" ;;
         gtk-settings) first "lxappearance" "nwg-look" || notify "Abyss theme" "GTK theme Abyss and icon theme Abyss are set in /etc/xdg/gtk-3.0/settings.ini" ;;

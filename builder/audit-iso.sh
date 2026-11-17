@@ -19,6 +19,7 @@ grep -q 'repository=https://mrzakaria.github.io/AbyssLinuxPMR/current' "$work/ro
 test -x "$work/root/usr/bin/abyss-key-capture"
 test -x "$work/root/usr/bin/abyss-cursor"
 test -x "$work/root/usr/bin/abyss-wallpaper"
+test -x "$work/root/usr/bin/abyss-wallpapers"
 test -f "$work/root/usr/share/backgrounds/abyss/abyss-wallpaper.jpg"
 test -d "$work/root/usr/share/icons/Adwaita/cursors"
 test -x "$work/root/usr/local/bin/abyss-file-chooser-init"
@@ -36,7 +37,7 @@ fi
 version=$(tr -d ' \n' < "$(dirname "$0")/../VERSION")
 grep -Fx "VERSION_ID=\"$version\"" "$work/root/usr/lib/os-release"
 grep -q 'Text size: automatic' "$work/root/usr/local/bin/abyss-control-center"
-xbps-query -r "$work/root" -p pkgver abyss-desktop | grep -Fx 'abyss-desktop-1.0_26'
+xbps-query -r "$work/root" -p pkgver abyss-desktop | grep -Fx 'abyss-desktop-1.0_27'
 xbps-query -r "$work/root" -p pkgver abyss-slock | grep -Fx 'abyss-slock-1.7_2'
 xbps-query -r "$work/root" -p pkgver abyss-st | grep -Fx 'abyss-st-0.9.3_2'
 xbps-query -r "$work/root" -p pkgver abyss-dwm | grep -Fx 'abyss-dwm-6.8_9'

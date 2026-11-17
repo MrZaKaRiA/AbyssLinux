@@ -1,0 +1,302 @@
+#!/bin/sh
+# ==============================================================================
+# abyss-wallpapers - choose the desktop background
+#
+#   abyss-wallpapers                 menu (dmenu)
+#   abyss-wallpapers list            one line per wallpaper, TAB-separated:
+#                                    path, label, system|user|other, current|-
+#   abyss-wallpapers set WHAT        a path, a name from the list, "none"
+#                                    (black) or "default" (the Abyss wallpaper)
+#   abyss-wallpapers add FILE        copy an image to ~/.local/share/backgrounds
+#                                    and use it
+#   abyss-wallpapers remove NAME     delete one of your own images
+#   abyss-wallpapers mode [MODE]     fill (default), fit, center or tile
+#
+# System wallpapers live in /usr/share/backgrounds/abyss, your own in
+# ~/.local/share/backgrounds. This script only writes the choice
+# (~/.config/abyss/wallpaper, one line: empty, "none" or a path) and the
+# placement (~/.config/abyss/wallpaper-mode); abyss-wallpaper draws it.
+# "other" in the list is a current image that lives somewhere else.
+# ==============================================================================
+SYS="${ABYSS_BACKGROUNDS_DIR:-/usr/share/backgrounds/abyss}"
+USR="$HOME/.local/share/backgrounds"
+CONF="$HOME/.config/abyss/wallpaper"
+DEFAULT="$SYS/abyss-wallpaper.jpg"
+UI=
+
+FONT='JetBrainsMono Nerd Font:size=10'
+NB='#0d0b18' NF='#f3e8ff' SB='#a855f7' SF='#090514'
+choose() { dmenu -i -c -l 18 -fn "$FONT" -nb "$NB" -nf "$NF" -sb "$SB" -sf "$SF" "$@"; }
+has() { command -v "$1" >/dev/null 2>&1; }
+notify() {
+    if has notify-send && notify-send -a Abyss 'Wallpaper' "$1"; then return 0; fi
+    printf 'OK\n' | choose -l 1 -p "$1" >/dev/null
+    :
+}
+# Results: the menu shows only problems (a change is visible on the screen).
+say()  { [ -n "$UI" ] || printf '%s\n' "$1"; }
+fail() { if [ -n "$UI" ]; then notify "$1"; else printf 'abyss-wallpapers: %s\n' "$1" >&2; fi; return 1; }
+
+is_image_name() {
+    case "$1" in
+        *.[jJ][pP][gG]|*.[jJ][pP][eE][gG]|*.[pP][nN][gG]|*.[wW][eE][bB][pP]) return 0 ;;
+    esac
+    return 1
+}
+
+# A readable image: by its extension, and by its content when file(1) is here.
+check_image() {
+    [ -f "$1" ] || { fail "No such file: $1"; return 1; }
+    [ -r "$1" ] || { fail "Cannot read $1"; return 1; }
+    is_image_name "$1" || { fail "Not an image: $1 (use a .jpg, .jpeg, .png or .webp file)"; return 1; }
+    if has file; then
+        c_type=$(file -bL --mime-type -- "$1" 2>/dev/null)
+        case "$c_type" in
+            ''|image/jpeg|image/png|image/webp) ;;
+            *) fail "Not an image: $1 (its content is $c_type)"; return 1 ;;
+        esac
+    fi
+    return 0
+}
+
+images_in() {
+    for i_f in "$1"/*; do
+        [ -f "$i_f" ] && is_image_name "$i_f" && printf '%s\n' "$i_f"
+    done
+}
+
+absolute() {
+    case "$1" in
+        /*) printf '%s\n' "$1" ;;
+        */*) a_dir=$(cd "${1%/*}" 2>/dev/null && pwd) && printf '%s/%s\n' "${a_dir%/}" "${1##*/}" || printf '%s\n' "$1" ;;
+        *) printf '%s/%s\n' "$PWD" "$1" ;;
+    esac
+}
+
+# What abyss-wallpaper will draw: "none", or the path of an image.
+current() {
+    c=$(head -n 1 "$CONF" 2>/dev/null)
+    case "$c" in '~/'*) c="$HOME/${c#??}" ;; esac
+    if [ "$c" = none ]; then echo none
+    elif [ -n "$c" ] && [ -f "$c" ]; then printf '%s\n' "$c"
+    else printf '%s\n' "$DEFAULT"; fi
+}
+
+current_mode() {
+    case "$(head -n 1 "$CONF-mode" 2>/dev/null)" in
+        fit) echo fit ;; center|centre) echo center ;; tile) echo tile ;; *) echo fill ;;
+    esac
+}
+
+cmd_list() {
+    {
+        [ -f "$DEFAULT" ] && printf 'system\t%s\n' "$DEFAULT"
+        images_in "$SYS" | while IFS= read -r l_f; do
+            case "$l_f" in "$DEFAULT"|"$SYS/abyss-splash.png") continue ;; esac
+            printf 'system\t%s\n' "$l_f"
+        done
+        images_in "$USR" | while IFS= read -r l_f; do printf 'user\t%s\n' "$l_f"; done
+    } | CUR=$(current) DEF=$DEFAULT awk -F '\t' '
+        function pretty(name,   s) {
+            s = name; sub(/\.[^.]*$/, "", s); gsub(/[-_]+/, " ", s); sub(/^ +/, "", s); sub(/ +$/, "", s)
+            if (s == "") s = name
+            return toupper(substr(s, 1, 1)) substr(s, 2)
+        }
+        function row(origin, path,   b, label) {
+            b = path; sub(/.*\//, "", b)
+            if (origin == "system" && b == "abyss-wallpaper.jpg") label = "Abyss (galaxy)"
+            else if (origin == "system" && b == "abyss-orbit.jpg") label = "Orbit (light trails)"
+            else { label = b; if (origin == "system") sub(/^abyss-/, "", label); label = pretty(label) }
+            if (label in used) label = label " (" b ")"
+            used[label] = 1
+            if (path == cur) found = 1
+            printf "%s\t%s\t%s\t%s\n", path, label, origin, (path == cur ? "current" : "-")
+        }
+        BEGIN { cur = ENVIRON["CUR"] }
+        NF >= 2 { row($1, $2) }
+        END { if (!found && cur != "none" && cur != ENVIRON["DEF"]) row("other", cur) }'
+}
+
+# Path of the wallpaper called $1 (file name with or without its extension,
+# or its label; "orbit" finds abyss-orbit.jpg). $2 limits the search to one origin.
+lookup() {
+    cmd_list | NAME=$1 awk -F '\t' -v want="${2:-}" '
+        BEGIN { n = ENVIRON["NAME"]; ln = tolower(n) }
+        want != "" && $3 != want { next }
+        {
+            b = $1; sub(/.*\//, "", b); s = b; sub(/\.[^.]*$/, "", s); t = s; sub(/^abyss-/, "", t)
+            short = tolower($2); sub(/ \(.*$/, "", short)
+            if ($1 == n || b == n || s == n || tolower(s) == ln || tolower(t) == ln || tolower($2) == ln || short == ln) { print $1; exit }
+        }'
+}
+
+apply() {
+    if has abyss-wallpaper; then abyss-wallpaper
+    elif [ -x "${0%/*}/abyss-wallpaper" ]; then "${0%/*}/abyss-wallpaper"
+    else fail 'abyss-wallpaper is missing; update Abyss.'; return 1; fi
+}
+
+cmd_set() {
+    s_what=${1:-}
+    case "$s_what" in '~/'*) s_what="$HOME/${s_what#??}" ;; esac
+    case "$s_what" in
+        '') fail 'set needs a path, a name from the list, "none" or "default".'; return 1 ;;
+        none) s_path=none ;;
+        default|abyss) s_path=$DEFAULT ;;
+        */*) s_path=$(absolute "$s_what") ;;
+        *)  s_path=$(lookup "$s_what")
+            [ -n "$s_path" ] || { [ -f "$s_what" ] && s_path=$(absolute "$s_what"); }
+            [ -n "$s_path" ] || { fail "No wallpaper called \"$s_what\". See: abyss-wallpapers list"; return 1; } ;;
+    esac
+    mkdir -p "${CONF%/*}" || return 1
+    if [ "$s_path" = none ]; then
+        echo none > "$CONF"
+        say 'Background: black.'
+    elif [ "$s_path" = "$DEFAULT" ]; then
+        rm -f "$CONF"                       # no file means the Abyss wallpaper
+        say 'Background: the Abyss wallpaper.'
+    else
+        check_image "$s_path" || return 1
+        printf '%s\n' "$s_path" > "$CONF"
+        say "Background: $s_path"
+    fi
+    apply || { fail 'The choice is saved, but the background could not be drawn now.'; return 1; }
+}
+
+cmd_add() {
+    a_src=${1:-}
+    case "$a_src" in '~/'*) a_src="$HOME/${a_src#??}" ;; esac
+    [ -n "$a_src" ] || { fail 'add needs an image file.'; return 1; }
+    check_image "$a_src" || return 1
+    mkdir -p "$USR" || { fail "Cannot create $USR"; return 1; }
+    a_src=$(absolute "$a_src")
+    if [ "$(cd "${a_src%/*}" && pwd -P)" = "$(cd "$USR" && pwd -P)" ]; then
+        cmd_set "$a_src"                    # already one of the user's images
+        return $?
+    fi
+    # Tabs and line breaks would break the list; a name is never reused for
+    # another picture: -1, -2 ... is added instead.
+    a_base=$(printf '%s' "${a_src##*/}" | tr '\t\n' '  ')
+    a_stem=${a_base%.*} a_ext=${a_base##*.}
+    [ -n "$a_stem" ] || a_stem=wallpaper
+    a_dest="$USR/$a_stem.$a_ext" a_n=0
+    while [ -e "$a_dest" ] || [ -L "$a_dest" ]; do
+        cmp -s "$a_src" "$a_dest" && break  # the very same picture: use it
+        a_n=$((a_n + 1)); a_dest="$USR/$a_stem-$a_n.$a_ext"
+    done
+    [ -e "$a_dest" ] || cp -- "$a_src" "$a_dest" || { fail "Could not copy the image to $USR"; return 1; }
+    cmd_set "$a_dest"
+}
+
+cmd_remove() {
+    [ -n "${1:-}" ] || { fail 'remove needs the name of one of your images.'; return 1; }
+    r_path=$(lookup "$1" user)
+    [ -n "$r_path" ] || { fail "\"$1\" is not one of your images in $USR"; return 1; }
+    r_cur=$(current)
+    rm -f -- "$r_path" || { fail "Could not delete $r_path"; return 1; }
+    say "Removed $r_path"
+    if [ "$r_cur" = "$r_path" ]; then
+        rm -f "$CONF"
+        say 'It was the background: back to the Abyss wallpaper.'
+        apply
+    fi
+    return 0
+}
+
+cmd_mode() {
+    case "${1:-}" in
+        '') current_mode; return 0 ;;
+        fill|fit|center|tile) m_new=$1 ;;
+        centre) m_new=center ;;
+        *) fail "Unknown mode \"$1\": use fill, fit, center or tile."; return 1 ;;
+    esac
+    mkdir -p "${CONF%/*}" || return 1
+    echo "$m_new" > "$CONF-mode"
+    say "Placement: $m_new."
+    apply || { fail 'The choice is saved, but the background could not be drawn now.'; return 1; }
+}
+
+# ---- menu --------------------------------------------------------------------
+FIT_fill='Fill the screen (edges may be cropped)'
+FIT_fit='Fit inside (whole image, black bars)'
+FIT_center='Centre (actual size)'
+FIT_tile='Tile (repeat)'
+fit_label() { eval "printf '%s\n' \"\$FIT_$1\""; }
+
+find_pictures() {
+    [ -d "$HOME/Pictures" ] || return 0
+    find "$HOME/Pictures" -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp' \) 2>/dev/null | sort
+}
+
+# Ask for an image file; prints its path, or nothing when cancelled.
+pick_file() {
+    if has zenity; then
+        p_dir=$HOME/
+        [ -d "$HOME/Pictures" ] && p_dir=$HOME/Pictures/
+        zenity --file-selection --title='Choose a wallpaper image' --filename="$p_dir" \
+            --file-filter='Images | *.jpg *.jpeg *.png *.webp *.JPG *.JPEG *.PNG *.WEBP' 2>/dev/null
+    elif has nsxiv && [ -n "$(find_pictures | head -n 1)" ]; then
+        printf 'OK\n' | choose -l 1 -p 'Pictures: press m on an image to mark it, then q' >/dev/null || return 0
+        find_pictures | nsxiv -t -o -i 2>/dev/null | head -n 1
+    else
+        p_path=$(choose -p 'Image file (type or paste a path):' < /dev/null) || return 0
+        p_path=${p_path#file://}
+        case "$p_path" in '~/'*) p_path="$HOME/${p_path#??}" ;; esac
+        printf '%s\n' "$p_path"
+    fi
+}
+
+menu() {
+    has dmenu || { echo 'abyss-wallpapers: the menu needs dmenu; see the subcommands at the top of this script.' >&2; exit 1; }
+    UI=1
+    while :; do
+        rows=$(cmd_list)
+        mode=$(current_mode)
+        black='Black (OLED)'
+        [ "$(current)" = none ] && black="$black  (current)"
+        sel=$({
+            printf '%s\n' "$rows" | awk -F '\t' 'NF { print $2 ($4 == "current" ? "  (current)" : "") }'
+            echo "$black"
+            echo 'Add an image…'
+            has nsxiv && echo 'Preview wallpapers… (m marks one, q closes)'
+            echo "Fit: $(fit_label "$mode")…"
+            printf '%s\n' "$rows" | awk -F '\t' '$3 == "user" { print "Remove one of my images…"; exit }'
+            echo 'Close'
+        } | choose -p 'Wallpaper') || exit 0
+        sel=${sel%  (current)}
+        path=$(printf '%s\n' "$rows" | PICK=$sel awk -F '\t' '$2 == ENVIRON["PICK"] { print $1; exit }')
+        if [ -n "$path" ]; then cmd_set "$path"; continue; fi
+        case "$sel" in
+            'Black (OLED)') cmd_set none ;;
+            'Add an image'*)
+                file=$(pick_file)
+                [ -n "$file" ] && cmd_add "$file" ;;
+            'Preview wallpapers'*)
+                file=$(printf '%s\n' "$rows" | cut -f 1 | nsxiv -t -o -i 2>/dev/null | head -n 1)
+                [ -n "$file" ] && cmd_set "$file" ;;
+            'Fit: '*)
+                fit=$(for m in fill fit center tile; do
+                    if [ "$m" = "$mode" ]; then echo "$(fit_label "$m")  (current)"; else fit_label "$m"; fi
+                done | choose -p 'How the image fills the screen') || continue
+                case "$fit" in
+                    Fill*) cmd_mode fill ;; Fit*) cmd_mode fit ;; Centre*) cmd_mode center ;; Tile*) cmd_mode tile ;;
+                esac ;;
+            'Remove one of my images'*)
+                gone=$(printf '%s\n' "$rows" | awk -F '\t' '$3 == "user" { print $2 ($4 == "current" ? "  (current)" : "") }' | choose -p 'Delete which image?') || continue
+                gone=${gone%  (current)}
+                path=$(printf '%s\n' "$rows" | PICK=$gone awk -F '\t' '$3 == "user" && $2 == ENVIRON["PICK"] { print $1; exit }')
+                [ -n "$path" ] && cmd_remove "$path" ;;
+            *) exit 0 ;;
+        esac
+    done
+}
+
+case "${1:-}" in
+    '')     menu ;;
+    list)   cmd_list ;;
+    set)    cmd_set "${2:-}" ;;
+    add)    cmd_add "${2:-}" ;;
+    remove) cmd_remove "${2:-}" ;;
+    mode)   cmd_mode "${2:-}" ;;
+    *)      sed -n '3,13s/^# \{0,1\}//p' "$0" >&2; exit 2 ;;
+esac
