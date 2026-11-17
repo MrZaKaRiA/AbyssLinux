@@ -38,7 +38,7 @@ fi
 version=$(tr -d ' \n' < "$(dirname "$0")/../VERSION")
 grep -Fx "VERSION_ID=\"$version\"" "$work/root/usr/lib/os-release"
 grep -q 'Text size: automatic' "$work/root/usr/local/bin/abyss-control-center"
-xbps-query -r "$work/root" -p pkgver abyss-desktop | grep -Fx 'abyss-desktop-1.0_29'
+xbps-query -r "$work/root" -p pkgver abyss-desktop | grep -Fx 'abyss-desktop-1.0_30'
 xbps-query -r "$work/root" -p pkgver abyss-slock | grep -Fx 'abyss-slock-1.7_2'
 xbps-query -r "$work/root" -p pkgver abyss-st | grep -Fx 'abyss-st-0.9.3_2'
 xbps-query -r "$work/root" -p pkgver abyss-dwm | grep -Fx 'abyss-dwm-6.8_9'
@@ -46,6 +46,21 @@ test -x "$work/root/usr/bin/abyss-record"
 test -f "$work/root/etc/skel/.config/zathura/zathurarc"
 test -f "$work/root/etc/skel/.vim/ftplugin/tex.vim"
 xbps-query -r "$work/root" -p pkgver abyss-theme | grep -Fx 'abyss-theme-1.0_5'
+# Shell helpers come from the package (so updates reach installed systems),
+# never from an image-only copy
+xbps-query -r "$work/root" -o /etc/profile.d/zz-abyss-cli.sh | grep -q '^abyss-desktop-'
+test ! -e "$work/root/etc/profile.d/99-void-dev-cli.sh"
+grep -Fq '. /etc/profile.d/zz-abyss-cli.sh' "$work/root/etc/skel/.bashrc"
+# elogind: installed, started by D-Bus; a runit service for it restart-loops
+xbps-query -r "$work/root" -p pkgver elogind
+test -f "$work/root/usr/share/dbus-1/system-services/org.freedesktop.login1.service"
+if [ -e "$work/root/etc/runit/runsvdir/default/elogind" ] || [ -L "$work/root/etc/runit/runsvdir/default/elogind" ]; then
+    echo 'elogind is enabled as a runit service (it must be left to D-Bus activation)' >&2
+    exit 1
+fi
+for sv in dbus polkit NetworkManager lightdm; do
+    test -L "$work/root/etc/runit/runsvdir/default/$sv"
+done
 # Ownership and modes that break logins or privilege escalation when wrong
 lightdm_ids=$(awk -F: '$1 == "lightdm" {print $3 ":" $4}' "$work/root/etc/passwd")
 test -n "$lightdm_ids"

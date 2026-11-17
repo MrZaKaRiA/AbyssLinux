@@ -14,8 +14,10 @@ if [ -f /etc/bashrc ]; then
     . /etc/bashrc
 fi
 
-if [ -f /etc/profile.d/99-void-dev-cli.sh ]; then
-    . /etc/profile.d/99-void-dev-cli.sh
+# Abyss shell helpers (update, upgrade, install, ...), kept current by the
+# abyss-desktop package
+if [ -f /etc/profile.d/zz-abyss-cli.sh ]; then
+    . /etc/profile.d/zz-abyss-cli.sh
 fi
 
 if [ -f /usr/share/bash-completion/bash_completion ]; then

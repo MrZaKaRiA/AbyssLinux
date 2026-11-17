@@ -59,6 +59,18 @@ done
 [ -f "$ROOTFS/etc/sudoers.d/abyss-power" ] && chmod 0440 "$ROOTFS/etc/sudoers.d/abyss-power"
 [ -f "$ROOTFS/etc/runit/core-services/11-abyss-runit-ctl.sh" ] && chmod 0644 "$ROOTFS/etc/runit/core-services/11-abyss-runit-ctl.sh"
 
+# elogind runs through D-Bus activation, never as a runit service: the service
+# loses the boot race to D-Bus and then restarts every second forever. mklive
+# links services after abyss-desktop's INSTALL ran, so drop a link that an old
+# service list (-S) may still have added. The installed system inherits this.
+if [ -L "$ROOTFS/etc/runit/runsvdir/default/elogind" ]; then
+    rm -f "$ROOTFS/etc/runit/runsvdir/default/elogind"
+    echo "[abyss] elogind runit service removed (D-Bus starts elogind)"
+fi
+# The shell helpers come from abyss-desktop (/etc/profile.d/zz-abyss-cli.sh);
+# the old image-only copy must not shadow them.
+rm -f "$ROOTFS/etc/profile.d/99-void-dev-cli.sh"
+
 # Release version: $ABYSS_VERSION, else the repository's VERSION file, else the date
 VERSION_FILE="$(dirname "$0")/../VERSION"
 if [ -z "${ABYSS_VERSION:-}" ] && [ -r "$VERSION_FILE" ]; then

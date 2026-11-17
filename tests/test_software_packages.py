@@ -14,7 +14,12 @@ BIN = ROOT / 'custom-overlay/usr/local/bin'
 SOFTWARE = Path(os.environ.get('ABYSS_SOFTWARE', BIN / 'abyss-software')).resolve()
 CENTER = Path(os.environ.get('ABYSS_CENTER', BIN / 'abyss-control-center')).resolve()
 SETUP = Path(os.environ.get('ABYSS_SETUP', BIN / 'abyss-setup')).resolve()
-PROFILE = os.environ.get('ABYSS_PROFILE', str(ROOT / 'custom-overlay/etc/profile.d/99-void-dev-cli.sh'))
+# The shell helpers ship in abyss-desktop (AbyssLinuxPMR); found next to this
+# checkout, inside the PMR checkout itself, or through ABYSS_PROFILE.
+PROFILE = os.environ.get('ABYSS_PROFILE') or next(
+    (str(p) for p in (ROOT / 'srcpkgs/abyss-desktop/files/zz-abyss-cli.sh',
+                      ROOT.parent / 'AbyssLinuxPMR/srcpkgs/abyss-desktop/files/zz-abyss-cli.sh')
+     if p.is_file()), '')
 FIXTURES = Path(__file__).resolve().parent / 'fixtures'
 ARCHES = ('x86_64', 'aarch64')
 
@@ -423,7 +428,7 @@ class InstallerTest(StubbedTest):
         self.assertIn('python3 — Python programming language', listing)
 
 
-@unittest.skipUnless(Path(PROFILE).is_file(), 'profile.d helpers live only in the AbyssLinux overlay')
+@unittest.skipUnless(Path(PROFILE).is_file(), 'abyss-desktop shell helpers (zz-abyss-cli.sh) not found; set ABYSS_PROFILE')
 class ShellHelpersTest(StubbedTest):
     """update/upgrade/install from /etc/profile.d (interactive bash only)."""
 

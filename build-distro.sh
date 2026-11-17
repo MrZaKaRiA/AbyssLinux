@@ -34,7 +34,9 @@ ABYSS_PMR="${ABYSS_PMR:-https://mrzakaria.github.io/AbyssLinuxPMR/current}"
 PKGS_SUCKLESS="abyss-dwm abyss-st abyss-dmenu abyss-slock abyss-tabbed abyss-wmname abyss-theme nsxiv feh xmenu xdotool"
 
 ALL_PACKAGES="${PKGS_BASE_X11} ${PKGS_INSTALLER} ${PKGS_SUCKLESS}"
-ENABLED_SERVICES="dbus elogind polkit NetworkManager lightdm"
+# elogind is installed but not enabled: D-Bus starts it on demand. Enabling its
+# runit service made runit retry every second forever ("already running").
+ENABLED_SERVICES="dbus polkit NetworkManager lightdm"
 
 # Silent boot (later loglevel= overrides mklive's built-in loglevel=4)
 ABYSS_BOOT_CMDLINE="quiet loglevel=3 rd.udev.log_level=3 udev.log_level=3 vt.global_cursor_default=0"
