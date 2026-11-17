@@ -167,6 +167,7 @@ EOF
 		󰝟  Mute / unmute	vol-mute
 		󰝚  Audio devices (terminal)	audio-tui
 	󰍹  Display
+		󰍹  __DISPLAY_RESOLUTION_LABEL__	display-follow
 		󰍹  Refresh rate (keeps resolution)	display-rate
 		󰍹  Resolution and refresh rate	display-gui
 		󰍺  Detect displays again	display-auto
@@ -205,7 +206,11 @@ EOF
 
 menu_tree() {
     swap_label=$(abyss-keyboard --swap-label 2>/dev/null || printf 'Swap Left Alt ↔ Super (Win/Cmd)')
-    menu_tree_raw | sed "s|__KEYBOARD_SWAP_LABEL__|$swap_label|g"
+    # Which resolution mode is active; the entry always leads back to automatic.
+    res_label=$(abyss-display --status 2>/dev/null | awk '$2 == "fixed" {printf "%s%s", sep, $3; sep = ", "}' | tr -d '|&\\')
+    if [ -n "$res_label" ]; then res_label="Resolution: fixed $res_label · back to automatic (follow the display / VM window)"
+    else res_label='Resolution: automatic (follow the display / VM window)'; fi
+    menu_tree_raw | sed "s|__KEYBOARD_SWAP_LABEL__|$swap_label|g; s|__DISPLAY_RESOLUTION_LABEL__|$res_label|g"
 }
 
 # Flatten the tree for dmenu: "Settings › Keyboard › Test what keys send<TAB>kbd-test"
@@ -392,6 +397,7 @@ act() {
         vol-mute)     if has wpctl; then wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle; else notify "Audio is not installed" "Install PipeWire from Install software."; fi ;;
         display-gui)  abyss-display ;;
         display-rate) abyss-display --rate ;;
+        display-follow) abyss-display --auto-resolution ;;
         display-auto) abyss-display --auto && notify "Displays" "Outputs re-detected" ;;
         pointer-size) if has abyss-cursor; then set_pointer_size
                       else notify "Pointer size" "Update Abyss to get the pointer size setting."; fi ;;

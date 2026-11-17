@@ -158,15 +158,34 @@ ssd() {  # used/size, red from 90 %
 # resized (the virtual display then advertises a new preferred size). Each
 # tick reads the connection state and the first (preferred) mode of every
 # connector from sysfs with shell builtins only, so it costs no process.
-display_state() {  # sets DISPLAY_NOW
+display_state() {  # sets DISPLAY_SYS
     local f line
-    DISPLAY_NOW=
+    DISPLAY_SYS=
     for f in /sys/class/drm/card*-*/status /sys/class/drm/card*-*/modes; do
         [[ -r "$f" ]] || continue
         line=
         read -r line < "$f" 2>/dev/null || true
-        DISPLAY_NOW+="${f#/sys/class/drm/}=${line};"
+        DISPLAY_SYS+="${f#/sys/class/drm/}=${line};"
     done
+}
+
+# Virtual displays only: sysfs lists the modes of the last probe, so it shows
+# a new window size only after the X server has reacted to the kernel's
+# hotplug event. Asking xrandr makes the server probe again and names the
+# preferred mode itself, whatever happened to that event. One process, every
+# third tick; never on real hardware, where a probe reads the monitor's EDID.
+display_preferred() {  # sets DISPLAY_XR: ";OUTPUT=PREFERRED" per connected output
+    local line out= mode
+    DISPLAY_XR=
+    while IFS= read -r line; do
+        if [[ "$line" != " "* ]]; then
+            out=
+            [[ "$line" == *" connected"* ]] && { out=${line%% *}; DISPLAY_XR+=";$out="; }
+        elif [[ -n "$out" && "$line" == *+* ]]; then
+            read -r mode _ <<< "$line"
+            DISPLAY_XR+="$mode"; out=
+        fi
+    done < <(xrandr --query 2>/dev/null)
 }
 
 picker_open() {  # abyss-display menu or rate picker on screen
@@ -177,20 +196,33 @@ picker_open() {  # abyss-display menu or rate picker on screen
 }
 
 # A change must hold for one more tick before it is acted on (a window being
-# dragged changes size continuously). While the restore runs, and on the tick
-# after it, whatever sysfs shows becomes the new baseline, so a restore can
-# never trigger the next one.
+# dragged changes size continuously). abyss-display --restore then applies the
+# saved layout, and the preferred mode of every output without a fixed
+# resolution. What is compared is the connection state and the preferred
+# modes, which a restore does not alter, so one restore cannot trigger the
+# next; a change that arrives while it runs is handled when it has finished.
 watch_displays() {
+    local sys=$DISPLAY_SYS
     display_state
+    if [[ -n "$DISPLAY_VIRTUAL" ]]; then
+        DISPLAY_TICK=$(( (DISPLAY_TICK + 1) % 3 ))
+        if (( DISPLAY_TICK == 0 )) || [[ "$DISPLAY_SYS" != "$sys" ]]; then display_preferred; fi
+    fi
+    DISPLAY_NOW="$DISPLAY_SYS$DISPLAY_XR"
+    DISPLAY_REFILL=$(( (DISPLAY_REFILL + 1) % 15 ))
+    (( DISPLAY_REFILL == 0 && DISPLAY_BUDGET < 4 )) && DISPLAY_BUDGET=$(( DISPLAY_BUDGET + 1 ))
     if [[ -n "$DISPLAY_JOB" ]]; then
         kill -0 "$DISPLAY_JOB" 2>/dev/null && return
         wait "$DISPLAY_JOB" 2>/dev/null
-        DISPLAY_JOB=; DISPLAY_SEEN=$DISPLAY_NOW; DISPLAY_PENDING=
-        return
+        DISPLAY_JOB=
     fi
     if [[ "$DISPLAY_NOW" == "$DISPLAY_SEEN" ]]; then DISPLAY_PENDING=; return; fi
     if [[ "$DISPLAY_NOW" != "$DISPLAY_PENDING" ]]; then DISPLAY_PENDING=$DISPLAY_NOW; return; fi
     picker_open && return
+    # A display that reports a change after every mode switch gets one
+    # restore per 30 seconds, not an endless series.
+    (( DISPLAY_BUDGET > 0 )) || return
+    DISPLAY_BUDGET=$(( DISPLAY_BUDGET - 1 ))
     DISPLAY_SEEN=$DISPLAY_NOW; DISPLAY_PENDING=
     abyss-display --restore >/dev/null 2>&1 &
     DISPLAY_JOB=$!
@@ -205,8 +237,12 @@ sleep 1
 BAT=
 BAT_TICK=0
 DISPLAY_PICKER="${XDG_RUNTIME_DIR:-$HOME/.cache}/abyss-display.pid"
-DISPLAY_JOB=; DISPLAY_PENDING=
-display_state; DISPLAY_SEEN=$DISPLAY_NOW
+DISPLAY_JOB=; DISPLAY_PENDING=; DISPLAY_XR=; DISPLAY_TICK=0; DISPLAY_VIRTUAL=
+DISPLAY_BUDGET=4; DISPLAY_REFILL=0
+for f in /sys/class/drm/card*-Virtual-*; do [[ -e "$f" ]] && DISPLAY_VIRTUAL=1; done
+display_state
+[[ -n "$DISPLAY_VIRTUAL" ]] && display_preferred
+DISPLAY_SEEN="$DISPLAY_SYS$DISPLAY_XR"
 
 while true; do
     NOW_T=${EPOCHREALTIME/[.,]/}

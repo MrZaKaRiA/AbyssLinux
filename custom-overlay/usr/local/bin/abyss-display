@@ -5,13 +5,19 @@
 #   abyss-display                 menu
 #   abyss-display --auto          every output on, left-to-right, best mode
 #   abyss-display --restore       saved profile, --auto for anything not in it
+#   abyss-display --auto-resolution [OUT]   stop using a fixed resolution
+#   abyss-display --status        "OUTPUT automatic|fixed MODE" / "OUTPUT off"
 #   abyss-display --rate [OUT]    refresh-rate picker
 #   abyss-display --apply-rates   re-apply saved refresh rates
 #   abyss-display --full-range [off]   full-range RGB on outputs that have the
 #                                 driver's "Broadcast RGB" switch (Intel)
 #
 # Files in ~/.config/abyss:
-#   monitors.sh     saved layout (written by the menu); always wins
+#   monitors.sh     saved layout (written by the menu): positions, outputs
+#                   that are off, and a mode only for a fixed resolution
+#   fixed-resolution   outputs whose resolution was chosen in the picker.
+#                   Everything else is automatic: it follows the display's
+#                   preferred mode (in a virtual machine, the window size)
 #   refresh-rates   "OUTPUT RATE" lines chosen in the rate picker; always win
 #   refresh-auto    write "preferred" in it to stay on the display's own
 #                   default rate. Without it an output with no saved rate runs
@@ -28,6 +34,9 @@ profile="$HOME/.config/abyss/monitors.sh"
 # Refresh rate chosen on its own, one "OUTPUT RATE" per line. It is applied on
 # top of whatever resolution is active, so the resolution can stay automatic.
 rates="$HOME/.config/abyss/refresh-rates"
+# Outputs with a resolution chosen by hand in the picker, one name per line.
+pins="$HOME/.config/abyss/fixed-resolution"
+AUTO_RES='Automatic resolution (follow the display / VM window)'
 policy="$HOME/.config/abyss/refresh-auto"
 fullrange="$HOME/.config/abyss/full-range"
 # While a picker is open dwm-statusbar must not re-apply the layout under it.
@@ -44,16 +53,65 @@ hold_picker() {
 fit_cursor() { has abyss-cursor && abyss-cursor >/dev/null 2>&1; :; }
 
 outputs=$(xrandr --query 2>/dev/null | awk '$2 == "connected" {print $1}')
-[ -n "$outputs" ] || { notify 'No connected display outputs found.'; exit 1; }
+[ -n "$outputs" ] || { [ "${1:-}" = --status ] || notify 'No connected display outputs found.'; exit 1; }
 
+# Fixed resolution of output $1 according to the saved layout; empty when it
+# is automatic. A virtual display advertises the VM window's size as its
+# preferred mode, and layouts saved before 27.3.3 recorded the current mode of
+# every output whether or not it had been chosen, so for Virtual-* a saved
+# mode only counts when the picker listed the output in $pins. On real
+# hardware an old saved mode is kept: there it was normally a real choice.
+fixed_mode() {
+    [ -r "$profile" ] || return 0
+    case "$1" in Virtual*) [ -r "$pins" ] && grep -qxF -- "$1" "$pins" || return 0 ;; esac
+    awk -v o="$1" '$1 == "xrandr" {
+        out = ""; m = ""
+        for (i = 2; i < NF; i++) { if ($i == "--output") out = $(i + 1); if ($i == "--mode") m = $(i + 1) }
+        if (out == o && m != "") { print m; exit }
+    }' "$profile"
+}
+
+# The saved layout as commands, with a mode that does not count (see
+# fixed_mode) replaced by --auto so the output keeps its position only.
+profile_cmds() {
+    p_ok=' '
+    [ -r "$pins" ] && p_ok=" $(tr '\n' ' ' < "$pins")"
+    awk -v ok="$p_ok" '
+        $1 == "xrandr" && / --mode / {
+            out = ""
+            for (i = 2; i < NF; i++) if ($i == "--output") out = $(i + 1)
+            if (out ~ /^Virtual/ && !index(ok, " " out " ")) {
+                line = $1
+                for (i = 2; i <= NF; i++) {
+                    if ($i == "--mode") { line = line " --auto"; i++ }
+                    else if ($i == "--rate") i++
+                    else line = line " " $i
+                }
+                print line; next
+            }
+        }
+        { print }' "$profile"
+}
+
+# Write the layout: positions, outputs that are off, and a mode only for the
+# outputs whose resolution is fixed ($1: output just fixed in the picker,
+# $2: outputs going back to automatic). Every other output is saved as --auto,
+# so saving a layout or a refresh rate never pins a resolution.
 save_profile() {
+    s_fixed=" ${1:-} "
+    s_auto=" $(echo ${2:-}) "
+    for s_o in $outputs; do
+        case "$s_auto" in *" $s_o "*) continue ;; esac
+        [ -z "$(fixed_mode "$s_o")" ] || s_fixed="$s_fixed$s_o "
+    done
     mkdir -p "${profile%/*}"
-    xrandr --query | awk '
+    xrandr --query | awk -v fixed="$s_fixed" '
         function emit() {
             if (out == "") return
-            if (mode != "" && rate != "")
+            if (mode == "" || rate == "") printf "xrandr --output %s --off\n", out
+            else if (index(fixed, " " out " "))
                 printf "xrandr --output %s --mode %s --rate %s --pos %sx%s\n", out, mode, rate, xpos, ypos
-            else printf "xrandr --output %s --off\n", out
+            else printf "xrandr --output %s --auto --pos %sx%s\n", out, xpos, ypos
         }
         $2 == "connected" {
             emit(); out=$1; mode=""; rate=""; xpos=0; ypos=0; inout=1
@@ -70,6 +128,11 @@ save_profile() {
         }
         END {emit()}
     ' > "$profile"
+    awk '$1 == "xrandr" && / --mode / { for (i = 2; i < NF; i++) if ($i == "--output") print $(i + 1) }' "$profile" > "$pins"
+    [ -s "$pins" ] || rm -f "$pins"
+    # One automatic output at the origin is what no layout at all gives.
+    [ "$(wc -l < "$profile")" -eq 1 ] && grep -q -- ' --auto --pos 0x0$' "$profile" && rm -f "$profile"
+    :
 }
 
 output_modes() {
@@ -266,6 +329,33 @@ pick_rate() {   # $1=output; keeps the resolution, changes only the rate
 
 if [ "${1:-}" = --apply-rates ]; then apply_rates; exit 0; fi
 
+if [ "${1:-}" = --status ]; then
+    for output in $outputs; do
+        want=$(fixed_mode "$output")
+        set -- $(active_mode "$output")
+        if [ $# -eq 0 ]; then echo "$output off"
+        elif [ -n "$want" ]; then echo "$output fixed $want"
+        else echo "$output automatic $1"; fi
+    done
+    exit 0
+fi
+
+# Back to the default: forget the fixed resolution of OUT (or of every
+# output) and switch to the display's preferred mode right away.
+if [ "${1:-}" = --auto-resolution ]; then
+    list=${2:-$outputs}
+    for output in $list; do
+        [ -n "$(active_mode "$output")" ] || continue      # off stays off
+        xrandr --output "$output" --auto || exit 1
+    done
+    if [ -r "$profile" ]; then save_profile '' "$list"; else rm -f "$pins"; fi
+    for output in $list; do boost_rate "$output"; done
+    apply_rates
+    fit_cursor
+    notify 'Resolution is automatic: it follows the display or the VM window.'
+    exit 0
+fi
+
 if [ "${1:-}" = --full-range ]; then
     [ -n "$(range_outputs)" ] || { notify 'No output here has a full/limited range switch (only the Intel driver offers one).'; exit 1; }
     mkdir -p "${fullrange%/*}"
@@ -303,10 +393,19 @@ fi
 
 if [ "${1:-}" = --restore ]; then
     if [ -r "$profile" ]; then
-        /bin/sh "$profile" 2>/dev/null
+        profile_cmds | /bin/sh 2>/dev/null
         for output in $outputs; do
-            grep -q -- "--output $output " "$profile" && continue
-            xrandr --output "$output" --auto 2>/dev/null && boost_rate "$output"
+            want=$(fixed_mode "$output")
+            if [ -n "$want" ]; then
+                # A fixed mode the display no longer lists (a VM window only
+                # offers its odd size while it has it) must not leave the
+                # output on a stale mode.
+                set -- $(active_mode "$output")
+                [ "${1:-$want}" = "$want" ] || xrandr --output "$output" --auto 2>/dev/null
+                continue
+            fi
+            grep -q -- "--output $output " "$profile" || xrandr --output "$output" --auto 2>/dev/null || continue
+            boost_rate "$output"
         done
     else
         exec "$0" --auto
@@ -341,17 +440,20 @@ while :; do
                 notify "$output does not expose any named common sizes. Choose All modes to see every mode it supports."
                 continue
             fi
-            selected=$(printf '%s\n' "$modes" | choose -p "$output resolution / refresh") || continue
+            now=$(fixed_mode "$output")
+            if [ -n "$now" ]; then now="fixed $now"; else now=automatic; fi
+            selected=$({ echo "$AUTO_RES"; printf '%s\n' "$modes"; } | choose -p "$output resolution (now $now)") || continue
             [ -n "$selected" ] || continue
+            if [ "$selected" = "$AUTO_RES" ]; then "$0" --auto-resolution "$output"; continue; fi
             mode=$(printf '%s\n' "$selected" | cut -d ' ' -f1)
             rate=$(printf '%s\n' "$selected" | awk -F ' @ | Hz' '{print $2}')
-            xrandr --output "$output" --mode "$mode" --rate "$rate" && save_profile && save_rate "$output" "$rate" && fit_cursor && notify "$output set to $mode at $rate Hz."
+            xrandr --output "$output" --mode "$mode" --rate "$rate" && save_profile "$output" && save_rate "$output" "$rate" && fit_cursor && notify "$output is fixed at $mode, $rate Hz. Choose \"$AUTO_RES\" in this list to undo."
             ;;
         'Turn an output off')
             output=$(printf '%s\n' "$outputs" | choose -p 'Turn off output') || continue
             [ -n "$output" ] && xrandr --output "$output" --off && save_profile && fit_cursor && notify "$output turned off."
             ;;
-        'Reset to automatic') rm -f "$profile" "$rates"; "$0" --auto && notify 'Display profile reset.'; exit $? ;;
+        'Reset to automatic') rm -f "$profile" "$rates" "$pins"; "$0" --auto && notify 'Display profile reset.'; exit $? ;;
         *) exit 0 ;;
     esac
 done
