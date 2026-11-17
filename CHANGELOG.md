@@ -23,6 +23,7 @@
 
 * Repair the malformed Rofi configuration shipped in older Abyss images while preserving user edits and backing up the original file.
 * Update the download links, release counter, and checksums in the README for 27.3.
+* New wallpaper **Abyss Orbit** (5120x2160, original, rendered by a script in the package sources), installed by `abyss-theme` 1.0_5 and listed in the wallpaper manager.
 * Wallpaper manager: **Settings › Display › Wallpaper…** (`abyss-wallpapers`) lists the system wallpapers and your own, adds an image (copied to `~/.local/share/backgrounds`), previews them in nsxiv, removes your images and sets how the image is placed (fill, fit, centre, tile; kept in `~/.config/abyss/wallpaper-mode`). `~/.config/abyss/wallpaper` keeps its one-line format; `abyss-wallpapers list|set|add|remove|mode` do the same from a script.
 
 ## v27.3 (2026-11-10)

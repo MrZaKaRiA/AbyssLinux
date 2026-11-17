@@ -20,6 +20,7 @@ test -x "$work/root/usr/bin/abyss-key-capture"
 test -x "$work/root/usr/bin/abyss-cursor"
 test -x "$work/root/usr/bin/abyss-wallpaper"
 test -x "$work/root/usr/bin/abyss-wallpapers"
+test -f "$work/root/usr/share/backgrounds/abyss/abyss-orbit.jpg"
 test -f "$work/root/usr/share/backgrounds/abyss/abyss-wallpaper.jpg"
 test -d "$work/root/usr/share/icons/Adwaita/cursors"
 test -x "$work/root/usr/local/bin/abyss-file-chooser-init"
@@ -44,7 +45,7 @@ xbps-query -r "$work/root" -p pkgver abyss-dwm | grep -Fx 'abyss-dwm-6.8_9'
 test -x "$work/root/usr/bin/abyss-record"
 test -f "$work/root/etc/skel/.config/zathura/zathurarc"
 test -f "$work/root/etc/skel/.vim/ftplugin/tex.vim"
-xbps-query -r "$work/root" -p pkgver abyss-theme | grep -Fx 'abyss-theme-1.0_4'
+xbps-query -r "$work/root" -p pkgver abyss-theme | grep -Fx 'abyss-theme-1.0_5'
 # Ownership and modes that break logins or privilege escalation when wrong
 lightdm_ids=$(awk -F: '$1 == "lightdm" {print $3 ":" $4}' "$work/root/etc/passwd")
 test -n "$lightdm_ids"
