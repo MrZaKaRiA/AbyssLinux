@@ -1,0 +1,2 @@
+# Ctrl+click opens the corresponding source line in a new terminal.
+set synctex-editor-command "st -e vim +%{line} %{input}"

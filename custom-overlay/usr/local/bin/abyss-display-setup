@@ -17,4 +17,5 @@ if [ -z "$dpi" ]; then
     else dpi=96; fi
 fi
 command -v xrdb >/dev/null 2>&1 && echo "Xft.dpi: $dpi" | xrdb -merge
+command -v abyss-cursor >/dev/null 2>&1 && abyss-cursor "$dpi"
 exit 0

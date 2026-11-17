@@ -8,6 +8,11 @@ choose() { dmenu -i -c -l 18 -fn "$FONT" -nb "$NB" -nf "$NF" -sb "$SB" -sf "$SF"
 has() { command -v "$1" >/dev/null 2>&1; }
 notify() { has notify-send && notify-send -a Abyss 'Display setup' "$1" || echo "$1"; }
 profile="$HOME/.config/abyss/monitors.sh"
+# Refresh rate chosen on its own, one "OUTPUT RATE" per line. It is applied on
+# top of whatever resolution is active, so the resolution can stay automatic.
+rates="$HOME/.config/abyss/refresh-rates"
+# The pointer is sized for the screen, so re-fit it after every mode change.
+fit_cursor() { has abyss-cursor && abyss-cursor >/dev/null 2>&1; :; }
 
 outputs=$(xrandr --query 2>/dev/null | awk '$2 == "connected" {print $1}')
 [ -n "$outputs" ] || { notify 'No connected display outputs found.'; exit 1; }
@@ -76,6 +81,105 @@ output_modes() {
     ' | sort -Vu
 }
 
+# Active mode of output $1: "MODE CURRENT PREFERRED RATE RATE ..." (PREFERRED
+# is "-" when the display marks none). Empty when the output is off.
+active_mode() {
+    xrandr --query 2>/dev/null | awk -v out="$1" '
+        $1 == out && $2 == "connected" { inout=1; next }
+        inout && /^[^[:space:]]/ { exit }
+        inout && /\*/ {
+            cur=""; pref="-"; last=""; list=""
+            for (i=2; i<=NF; i++) {
+                if ($i == "+") { pref=last; continue }
+                if ($i == "*") { cur=last; continue }
+                r=$i; sub(/[+*]+$/, "", r)
+                if (r !~ /^[0-9]+([.][0-9]+)?$/) continue
+                if ($i ~ /\*/) cur=r
+                if ($i ~ /\+/) pref=r
+                last=r; list=list " " r
+            }
+            if (cur != "") print $1, cur, pref list
+            exit
+        }'
+}
+
+save_rate() {   # $1=output $2=rate (empty: forget it)
+    mkdir -p "${rates%/*}"
+    {
+        [ -r "$rates" ] && awk -v o="$1" '$1 != o' "$rates"
+        [ -n "$2" ] && printf '%s %s\n' "$1" "$2"
+    } > "$rates.tmp"
+    mv -f "$rates.tmp" "$rates"
+}
+
+# Re-apply saved rates when the active resolution still offers them; otherwise
+# leave the display's own default alone.
+apply_rates() {
+    [ -r "$rates" ] || return 0
+    while read -r r_out r_want _; do
+        case "$r_out" in ''|\#*) continue ;; esac
+        set -- $(active_mode "$r_out")
+        [ $# -ge 4 ] || continue
+        r_mode=$1 r_cur=$2; shift 3
+        [ "$r_cur" = "$r_want" ] && continue
+        for r in "$@"; do
+            [ "$r" = "$r_want" ] || continue
+            xrandr --output "$r_out" --mode "$r_mode" --rate "$r_want" 2>/dev/null
+            break
+        done
+    done < "$rates"
+}
+
+pick_rate() {   # $1=output; keeps the resolution, changes only the rate
+    output=$1
+    set -- $(active_mode "$output")
+    [ $# -ge 4 ] || { notify "$output is turned off. Turn it on first."; return 1; }
+    mode=$1 cur=$2 pref=$3; shift 3
+    list=$(printf '%s\n' "$@" | sort -rnu)
+    if [ "$(printf '%s\n' "$list" | wc -l)" -le 1 ]; then
+        notify "$output offers only $cur Hz at $mode. Virtual machines and some panels have a single refresh rate."
+        return 0
+    fi
+    sel=$({
+        echo 'Automatic (display default)'
+        printf '%s\n' "$list" | awk -v c="$cur" -v p="$pref" '{printf "%s Hz%s%s\n", $1, ($1 == c ? "  (current)" : ""), ($1 == p ? "  (display default)" : "")}'
+    } | choose -p "$output refresh rate at $mode") || return 0
+    case "$sel" in
+        '') return 0 ;;
+        Automatic*)
+            save_rate "$output" ''
+            [ "$pref" = - ] || xrandr --output "$output" --mode "$mode" --rate "$pref"
+            [ -r "$profile" ] && save_profile
+            notify "$output refresh rate is automatic again." ;;
+        *)
+            rate=${sel%% *}
+            [ "$rate" = "$cur" ] && { save_rate "$output" "$rate"; return 0; }
+            xrandr --output "$output" --mode "$mode" --rate "$rate" || { notify "Could not set $rate Hz on $output."; return 1; }
+            # A rate the panel cannot really show leaves a black screen, so
+            # only keep it after the user confirms they can still see.
+            answer=$(printf 'Keep %s Hz\nGo back to %s Hz\n' "$rate" "$cur" | timeout 20s dmenu -i -c -l 2 -fn "$FONT" -nb "$NB" -nf "$NF" -sb "$SB" -sf "$SF" -p 'Keep this refresh rate? Reverts in 20 seconds' 2>/dev/null) || answer=
+            case "$answer" in
+                Keep*) save_rate "$output" "$rate"; [ -r "$profile" ] && save_profile
+                       notify "$output set to $rate Hz at $mode." ;;
+                *) xrandr --output "$output" --mode "$mode" --rate "$cur"
+                   notify "$output is back at $cur Hz." ;;
+            esac ;;
+    esac
+}
+
+if [ "${1:-}" = --apply-rates ]; then apply_rates; exit 0; fi
+
+if [ "${1:-}" = --rate ]; then
+    output=${2:-}
+    if [ -z "$output" ]; then
+        if [ "$(printf '%s\n' "$outputs" | wc -l)" -eq 1 ]; then output=$outputs
+        else output=$(printf '%s\n' "$outputs" | choose -p 'Refresh rate for which display?') || exit 0; fi
+    fi
+    [ -n "$output" ] || exit 0
+    pick_rate "$output"
+    exit $?
+fi
+
 if [ "${1:-}" = --auto ]; then
     prev=
     for output in $outputs; do
@@ -83,6 +187,8 @@ if [ "${1:-}" = --auto ]; then
         else xrandr --output "$output" --auto || exit 1; fi
         prev=$output
     done
+    apply_rates
+    fit_cursor
     exit 0
 fi
 
@@ -95,13 +201,16 @@ if [ "${1:-}" = --restore ]; then
     else
         exec "$0" --auto
     fi
+    apply_rates
+    fit_cursor
     exit 0
 fi
 
 while :; do
-    action=$(printf '%s\n' 'Arrange connected displays left-to-right' 'Choose resolution and refresh rate' 'Turn an output off' 'Reset to automatic' 'Back' | choose -p 'Display setup') || exit 0
+    action=$(printf '%s\n' 'Arrange connected displays left-to-right' 'Choose refresh rate only (keeps the resolution)' 'Choose resolution and refresh rate together' 'Turn an output off' 'Reset to automatic' 'Back' | choose -p 'Display setup') || exit 0
     case "$action" in
         'Arrange connected'*) "$0" --auto && notify 'Displays arranged left-to-right.'; exit $? ;;
+        'Choose refresh rate'*) "$0" --rate ;;
         'Choose resolution'*)
             output=$(printf '%s\n' "$outputs" | choose -p 'Choose output') || continue
             [ -n "$output" ] || continue
@@ -123,13 +232,13 @@ while :; do
             [ -n "$selected" ] || continue
             mode=$(printf '%s\n' "$selected" | cut -d ' ' -f1)
             rate=$(printf '%s\n' "$selected" | awk -F ' @ | Hz' '{print $2}')
-            xrandr --output "$output" --mode "$mode" --rate "$rate" && save_profile && notify "$output set to $mode at $rate Hz."
+            xrandr --output "$output" --mode "$mode" --rate "$rate" && save_profile && save_rate "$output" "$rate" && fit_cursor && notify "$output set to $mode at $rate Hz."
             ;;
         'Turn an output off')
             output=$(printf '%s\n' "$outputs" | choose -p 'Turn off output') || continue
-            [ -n "$output" ] && xrandr --output "$output" --off && save_profile && notify "$output turned off."
+            [ -n "$output" ] && xrandr --output "$output" --off && save_profile && fit_cursor && notify "$output turned off."
             ;;
-        'Reset to automatic') rm -f "$profile"; "$0" --auto && notify 'Display profile reset.'; exit $? ;;
+        'Reset to automatic') rm -f "$profile" "$rates"; "$0" --auto && notify 'Display profile reset.'; exit $? ;;
         *) exit 0 ;;
     esac
 done

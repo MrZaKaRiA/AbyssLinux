@@ -1,0 +1,45 @@
+#!/bin/sh
+# ==============================================================================
+# abyss-wallpaper - draw the desktop background (the one place that does it)
+#
+#   abyss-wallpaper            apply the saved choice
+#   abyss-wallpaper abyss      save and apply the Abyss wallpaper (the default)
+#   abyss-wallpaper none       save and apply a plain black desktop (OLED)
+#   abyss-wallpaper /an/image  save and apply your own image
+#   abyss-wallpaper --legacy   used by abyss-session, see below
+#
+# The choice is the first line of ~/.config/abyss/wallpaper: missing or empty
+# means the Abyss wallpaper, "none" means black, anything else is an image path.
+# ==============================================================================
+DEFAULT=/usr/share/backgrounds/abyss/abyss-wallpaper.jpg
+CONF="$HOME/.config/abyss/wallpaper"
+
+mode="${1:-}"
+case "$mode" in
+    ""|--legacy) ;;
+    abyss)  rm -f "$CONF" ;;
+    *)      mkdir -p "${CONF%/*}" && printf '%s\n' "$mode" > "$CONF" ;;
+esac
+
+choice=$(head -n 1 "$CONF" 2>/dev/null)
+case "$choice" in '~/'*) choice="$HOME/${choice#??}" ;; esac
+if [ "$choice" = none ]; then img=
+elif [ -n "$choice" ] && [ -f "$choice" ]; then img=$choice
+else img=$DEFAULT; fi
+
+# ~/.xinitrc and ~/.dwm/autostart.sh copied from /etc/skel before 27.3.3 draw
+# the Abyss wallpaper themselves. Leave the default to them, and apply another
+# choice only after dwm has started and their feh has finished.
+if [ "$mode" = --legacy ]; then
+    [ "$img" = "$DEFAULT" ] && exit 0
+    grep -qsF "feh --bg-fill $DEFAULT" "$HOME/.xinitrc" "$HOME/.dwm/autostart.sh" || exit 0
+    uid=$(id -u); n=0
+    until pgrep -u "$uid" -x dwm >/dev/null 2>&1 || [ "$n" -ge 30 ]; do sleep 1; n=$((n + 1)); done
+    sleep 1; n=0
+    while pgrep -u "$uid" -x feh >/dev/null 2>&1 && [ "$n" -lt 10 ]; do sleep 1; n=$((n + 1)); done
+fi
+
+if [ -n "$img" ] && [ -f "$img" ] && command -v feh >/dev/null 2>&1; then
+    exec feh --no-fehbg --bg-fill "$img"
+fi
+exec xsetroot -solid "#000000"

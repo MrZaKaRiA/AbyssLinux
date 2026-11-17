@@ -1,0 +1,12 @@
+#!/bin/sh
+# Capture comparable, read-only metrics on a running Linux desktop.
+set -eu
+[ -r /proc/uptime ] && [ -r /proc/meminfo ] || { echo 'Requires Linux /proc' >&2; exit 1; }
+printf 'Captured: '; date -u '+%Y-%m-%dT%H:%M:%SZ'
+printf 'Kernel: '; uname -srmo
+printf 'Uptime (seconds): '; awk '{print $1}' /proc/uptime
+printf '\nMemory (kB):\n'; awk '/^(MemTotal|MemAvailable|SwapTotal|SwapFree):/ {print}' /proc/meminfo
+printf '\nDesktop processes (PID, CPU seconds, RSS KiB, command):\n'
+ps -eo pid,time,rss,comm | awk 'NR == 1 || $4 ~ /^(dwm|dwm-statusbar|st|Xorg|pipewire|wireplumber)$/ {print}'
+printf '\nEnabled runit services:\n'
+for service in /var/service/*; do [ -e "$service" ] && basename "$service"; done

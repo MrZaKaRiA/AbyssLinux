@@ -27,11 +27,11 @@ fi
 # Minimal bootable desktop: Void system, Xorg, network, login, and small
 # utilities that configure the Abyss session. User applications are installed
 # on demand from abyss-software after boot.
-PKGS_BASE_X11="base-system curl ca-certificates grub grub-arm64-efi grub-x86_64-efi efibootmgr dosfstools parted gdisk cryptsetup lvm2 mdadm xorg-minimal xf86-video-fbdev xf86-input-libinput xinit xsetroot xset xrandr xrdb xmodmap setxkbmap xev mesa-dri dbus elogind polkit NetworkManager lightdm lightdm-gtk-greeter font-jetbrains-mono-ttf nerd-fonts-symbols-ttf opendoas"
+PKGS_BASE_X11="base-system curl ca-certificates grub grub-arm64-efi grub-x86_64-efi efibootmgr dosfstools parted gptfdisk cryptsetup lvm2 mdadm xorg-minimal xss-lock xf86-video-fbdev xf86-input-libinput xinit xsetroot xset xrandr xrdb xmodmap setxkbmap xev mesa-dri dbus elogind polkit NetworkManager lightdm lightdm-gtk-greeter font-jetbrains-mono-ttf nerd-fonts-symbols-ttf opendoas"
 PKGS_INSTALLER="dialog xtools-minimal xmirror"
 # Abyss builds of the suckless tools from the signed Abyss PMR
 ABYSS_PMR="${ABYSS_PMR:-https://mrzakaria.github.io/AbyssLinuxPMR/current}"
-PKGS_SUCKLESS="abyss-dwm abyss-st abyss-dmenu abyss-slock abyss-tabbed abyss-wmname abyss-theme nsxiv"
+PKGS_SUCKLESS="abyss-dwm abyss-st abyss-dmenu abyss-slock abyss-tabbed abyss-wmname abyss-theme nsxiv feh"
 
 ALL_PACKAGES="${PKGS_BASE_X11} ${PKGS_INSTALLER} ${PKGS_SUCKLESS}"
 ENABLED_SERVICES="dbus elogind polkit NetworkManager lightdm"

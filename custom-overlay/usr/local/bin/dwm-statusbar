@@ -159,6 +159,8 @@ read -r PREV_TOTAL PREV_IDLE <<< "$(cpu_stat)"
 read -r PREV_RX PREV_TX <<< "$(net_bytes)"
 PREV_T=${EPOCHREALTIME/[.,]/}       # microseconds
 sleep 1
+BAT=
+BAT_TICK=0
 
 while true; do
     NOW_T=${EPOCHREALTIME/[.,]/}
@@ -184,7 +186,8 @@ while true; do
         NET="${WARN}offline"
     fi
 
-    BAT=$(battery)
+    if (( BAT_TICK % 15 == 0 )); then BAT=$(battery); fi
+    BAT_TICK=$((BAT_TICK + 1))
     VOL=$(volume)
     STATUS="${NET}${SEP}${BAT:+$BAT${SEP}}${VOL:+$VOL${SEP}}${LABEL} ${VALUE}${CPU_PCT}%$(cpu_temp)${SEP}${LABEL}󰍛 ${VALUE}$(ram)${SEP}${VALUE}$(date '+%a %d %H:%M') ${MENU}"
 

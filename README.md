@@ -206,6 +206,8 @@ Optional applications are installed from **Menu → Install software**. The base
 | `abyss-wmname` 0.1_1 | wmname 0.1 + git `1114a83` | none | `wmname LG3D` for Java GUI apps |
 | `abyss-theme` 1.0_1 | Abyss | GTK 3 theme "Abyss" (Adwaita dark + Abyss palette), icon theme "Abyss" (Papirus-Dark, violet folders) | Dark Thunar and GTK apps |
 
+The bundled dwm source also keeps layout and master settings per tag. The optional software menu offers terminal, writing, and media bundles. The st source supports Shift+Page Up/Down and Shift+mouse wheel for scrollback. The media menu can play a clipboard URL or record the full X11 desktop without audio; press `q` in the recording terminal to finish. The writing configuration provides `:make` (also `\m`), `:TexView`, and Ctrl-click in Zathura to open the source line in a new Vim terminal.
+
 The patched source trees are in this repository (`dwm/`, `st/`, `dmenu/`, `slock/`, `tabbed/`, `wmname/`). The PMR holds the same changes as patch files against the official release tarballs.
 
 ### Minimal Void foundation
@@ -339,3 +341,15 @@ Abyss Linux is a community project and is not affiliated with Void Linux or suck
 © 2026 Abyss Linux · Made with 💜 & <a href="https://voidlinux.org">Void Linux</a> & <a href="https://suckless.org">Suckless</a> · By <a href="https://mrzakaria.com">MrZaKaRiA</a>
 
 </div>
+
+
+For a repeatable performance snapshot on a running Linux system, run `tools/abyss-benchmark` after the desktop settles. Compare runs on the same machine and workload; it reports uptime, memory, process CPU time and RSS, and enabled services. It does not measure boot-to-desktop latency or power consumption.
+
+
+To smoke-test a live ARM64 ISO on an Apple Silicon Mac with QEMU and HVF:
+
+```sh
+python3 tools/smoke-iso.py path/to/abyss.iso --firmware /opt/homebrew/share/qemu/edk2-aarch64-code.fd
+```
+
+The test boots the live image, opens a terminal, and verifies that a shell command completes. It does not install to disk or validate upgrades, audio, suspend, or the optional writing and media workflows. Increase `--wait` on slower systems. Add `--candidate` to check for the lock listener, the locker group, and the screen recorder in an image built from these changes.

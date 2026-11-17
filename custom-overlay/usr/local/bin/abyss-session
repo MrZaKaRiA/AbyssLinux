@@ -4,6 +4,18 @@
 # Runs the user's ~/.xinitrc, the same file startx uses, so there is a single
 # place to customise the session. Falls back to the stock one from /etc/skel.
 # ==============================================================================
+# Provide the bus to legacy ~/.xinitrc files as well as new sessions.
+if command -v dbus-run-session >/dev/null 2>&1 && [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ] && [ -z "${ABYSS_DBUS_STARTED:-}" ]; then
+    export ABYSS_DBUS_STARTED=1
+    exec dbus-run-session /bin/sh "$0" "$@"
+fi
+# The listener also covers older user session files without rewriting them.
+if command -v xss-lock >/dev/null 2>&1 && command -v slock >/dev/null 2>&1 && ! pgrep -u "$(id -u)" -x xss-lock >/dev/null 2>&1; then
+    xss-lock --transfer-sleep-lock -- slock &
+    export ABYSS_LOCK_LISTENER_STARTED=1
+fi
+# Set cursor size for existing users without changing their ~/.xinitrc.
+command -v abyss-cursor >/dev/null 2>&1 && abyss-cursor || :
 # GTK 4/libadwaita does not use GTK 3's dark-theme setting. Abyss ships a
 # dark desktop, so provide a lightweight default for libadwaita dialogs too.
 # Honour an explicit user choice (including prefer-light) without a portal.
@@ -12,6 +24,9 @@ export ADW_DEBUG_COLOR_SCHEME
 # Repair the historical broken config before the desktop starts so direct
 # rofi calls and old hotkeys benefit too, while leaving custom configs alone.
 command -v abyss-rofi-repair >/dev/null 2>&1 && abyss-rofi-repair >/dev/null 2>&1 || :
+# A ~/.xinitrc copied before 27.3.3 draws the wallpaper itself; this makes a
+# saved background choice (~/.config/abyss/wallpaper) win over it.
+command -v abyss-wallpaper >/dev/null 2>&1 && abyss-wallpaper --legacy >/dev/null 2>&1 &
 if [ -f "$HOME/.xinitrc" ]; then
     exec /bin/sh "$HOME/.xinitrc"
 fi

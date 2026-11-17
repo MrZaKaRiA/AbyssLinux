@@ -45,6 +45,9 @@ MIRROR_DONE=
 
 TARGETDIR=/mnt/target
 LOG=/dev/tty8
+# Abyss: tty8 keeps nothing, so the steps that matter most when they fail
+# (rootfs copy, grub-install, dracut) also append to this file via log_run
+LOGFILE=/tmp/abyss-install.log
 CONF_FILE=/tmp/.void-installer.conf
 if [ ! -f $CONF_FILE ]; then
     touch -f $CONF_FILE
@@ -115,6 +118,21 @@ DIALOG() {
         --backtitle "${BACKTITLE}" \
         --cancel-label "Back" --aspect 20 "$@" 2>$ANSWER
     return $?
+}
+
+# Abyss: run a command with its output on $LOG as before, plus a persistent
+# copy in $LOGFILE. Returns the exit status of the command itself.
+log_run() {
+    echo "+ $*" >>"$LOGFILE" 2>/dev/null
+    "$@" 2>&1 | tee -a "$LOGFILE" 2>/dev/null >>$LOG
+    return ${PIPESTATUS[0]}
+}
+
+# Abyss: last lines of $LOGFILE, formatted for a dialog text ("\n" separated,
+# no backslashes so nothing is taken as a dialog colour escape)
+log_tail() {
+    tail -n "${1:-6}" "$LOGFILE" 2>/dev/null | tr -d '\\' | cut -c1-72 | \
+        awk '{printf "%s\\n", $0}'
 }
 
 INFOBOX() {
@@ -950,11 +968,11 @@ set_bootloader() {
 
         echo "Running grub-install $grub_args..." >$LOG
         # Try standard EFI install first
-        if chroot $TARGETDIR grub-install $grub_args >>$LOG 2>&1; then
+        if log_run chroot $TARGETDIR grub-install $grub_args; then
             grub_success=1
         else
             echo "Standard grub-install failed, retrying with --no-nvram --removable..." >>$LOG
-            if chroot $TARGETDIR grub-install $grub_args --no-nvram --removable >>$LOG 2>&1; then
+            if log_run chroot $TARGETDIR grub-install $grub_args --no-nvram --removable; then
                 grub_success=1
             fi
         fi
@@ -973,14 +991,17 @@ set_bootloader() {
     else
         # BIOS install to MBR/disk
         echo "Running grub-install on $dev..." >$LOG
-        if chroot $TARGETDIR grub-install --recheck "$dev" >>$LOG 2>&1; then
+        if log_run chroot $TARGETDIR grub-install --recheck "$dev"; then
             grub_success=1
         fi
     fi
 
     if [ $grub_success -ne 1 ]; then
         DIALOG --msgbox "${BOLD}${RED}ERROR:${RESET} \
-failed to install GRUB to $dev!\nCheck $LOG for errors." ${MSGBOXSIZE}
+failed to install GRUB to $dev!\nCheck $LOG or $LOGFILE for errors.\n\n\
+${BOLD}Last log lines:${RESET}\n$(log_tail 6)\n\
+Hint: in a virtual machine this usually means the disk of the host \
+computer is full, so writes to the virtual disk fail." 20 76
         DIE 1
     fi
 
@@ -1368,19 +1389,60 @@ log_and_count() {
     done
 }
 
+# Abyss: refuse to start the copy when the live system cannot fit on the
+# target. Used space is measured on the live root filesystem only (the copy
+# uses tar --one-file-system); available space is summed over the disk
+# filesystems mounted at or below $TARGETDIR. 10% margin. If either number
+# cannot be determined the check is skipped rather than blocking the install.
+check_target_space() {
+    local need_kb avail_kb want_kb need_gib avail_gib
+    need_kb=$(du -sxk / 2>/dev/null | awk 'END {print $1+0}')
+    avail_kb=$(df -Pk 2>/dev/null | awk -v t="$TARGETDIR" \
+        'NR > 1 && $1 ~ /^\/dev\// && ($6 == t || index($6, t "/") == 1) && !seen[$1]++ {s += $4}
+         END {print s+0}')
+    echo "Space check: live system ${need_kb:-?} KiB, target ${avail_kb:-?} KiB available" >>"$LOGFILE" 2>/dev/null
+    [ "${need_kb:-0}" -gt 0 ] 2>/dev/null || return 0
+    [ "${avail_kb:-0}" -gt 0 ] 2>/dev/null || return 0
+    want_kb=$((need_kb + need_kb / 10))
+    [ "$avail_kb" -ge "$want_kb" ] && return 0
+    need_gib=$(awk -v k="$want_kb" 'BEGIN {printf "%.1f", k / 1048576}')
+    avail_gib=$(awk -v k="$avail_kb" 'BEGIN {printf "%.1f", k / 1048576}')
+    DIALOG --msgbox "${BOLD}${RED}ERROR:${RESET} \
+not enough space on the target disk!\n\n\
+The system needs about ${BOLD}${need_gib} GiB${RESET} (including a 10% margin), \
+but only ${BOLD}${avail_gib} GiB${RESET} are available on $TARGETDIR.\n\n\
+Use a larger disk or partition and start the installation again." 12 70
+    return 1
+}
+
 copy_rootfs() {
     local tar_in="--create --one-file-system --xattrs"
+    local copy_status
     TITLE="Check $LOG for details ..."
     INFOBOX "Counting files, please be patient ..." 4 60
     copy_total=$(tar ${tar_in} -v -f /dev/null / 2>/dev/null | wc -l)
+    check_target_space || DIE 1
     export copy_total copy_count=0 copy_progress=
     clear
-    tar ${tar_in} -f - / 2>/dev/null | \
-        tar --extract --xattrs --xattrs-include='*' --preserve-permissions -v -f - -C $TARGETDIR | \
+    echo "Copying live image to $TARGETDIR ..." >>"$LOGFILE" 2>/dev/null
+    tar ${tar_in} -f - / 2>>"$LOGFILE" | \
+        tar --extract --xattrs --xattrs-include='*' --preserve-permissions -v -f - -C $TARGETDIR 2>>"$LOGFILE" | \
         log_and_count | \
         DIALOG --title "${TITLE}" \
             --progressbox "Copying live image to target rootfs." 5 60
-    if [ $? -ne 0 ]; then
+    copy_status=("${PIPESTATUS[@]}")
+    echo "Copy finished: tar create=${copy_status[0]} tar extract=${copy_status[1]} dialog=${copy_status[3]}" >>"$LOGFILE" 2>/dev/null
+    # The reading tar exits 1 when a file merely changed while it was read
+    # (normal on a running live system); 2 and above is a real failure.
+    if [ "${copy_status[0]}" -gt 1 ] || [ "${copy_status[1]}" -ne 0 ]; then
+        DIALOG --msgbox "${BOLD}${RED}ERROR:${RESET} \
+Copying the system failed: the target disk is full or there was a \
+read/write error.\n\n\
+${BOLD}Last log lines ($LOGFILE):${RESET}\n$(log_tail 6)\n\
+Hint: in a virtual machine a full disk on the host computer causes this too." 20 76
+        DIE 1
+    fi
+    if [ "${copy_status[3]}" -ne 0 ]; then
         DIE 1
     fi
     unset copy_total copy_count copy_percent
@@ -1556,7 +1618,17 @@ Root partition not empty! Aborting..." ${MSGBOXSIZE}
         echo "Rebuilding initramfs for target ..." >$LOG
         # mount required fs
         mount_filesystems
-        chroot $TARGETDIR dracut --no-hostonly --add-drivers "ahci" --force >>$LOG 2>&1
+        # virtio_rng avoids a ~4 s entropy stall at boot in virtual machines.
+        # If a kernel does not have it and dracut objects, build without it.
+        log_run chroot $TARGETDIR dracut --no-hostonly --add-drivers "ahci virtio_rng" --force || \
+            log_run chroot $TARGETDIR dracut --no-hostonly --add-drivers "ahci" --force
+        if [ $? -ne 0 ]; then
+            DIALOG --msgbox "${BOLD}${RED}ERROR:${RESET} \
+failed to build the initramfs (dracut) for the installed system! Without \
+it the system cannot boot.\n\n\
+${BOLD}Last log lines ($LOGFILE):${RESET}\n$(log_tail 6)" 18 76
+            DIE 1
+        fi
         INFOBOX "Removing temporary packages from target ..." 4 60
         echo "Removing temporary packages from target ..." >$LOG
         TO_REMOVE="xmirror xtools-minimal dialog"  # dependents first: xmirror needs dialog

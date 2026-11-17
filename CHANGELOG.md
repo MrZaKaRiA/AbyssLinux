@@ -1,6 +1,21 @@
 # Changelog
 
-## Unreleased
+## v27.3.3 (2026-11-17)
+
+* Scale the mouse pointer with the desktop text size, including at login, while respecting a custom cursor theme.
+* Size the mouse pointer for the screen as well as the text size, so a high-resolution display no longer gets a tiny pointer. **Settings › Display › Pointer size** sets a fixed size; the pointer is re-fitted after every resolution change.
+* Add **Settings › Display › Refresh rate (keeps resolution)**: pick a refresh rate on its own. The resolution stays automatic, the rate is remembered per display and re-applied after display detection, and a 20-second keep/revert prompt protects against a rate the panel cannot show.
+* "Detect displays again" now keeps a saved refresh rate instead of resetting it.
+* The Abyss menu opens on the quick actions and five categories that fit on one screen. A category opens its own list; typing at the first screen still searches every entry.
+* Installer: check free space before copying, stop with a clear message when the copy or the initramfs build fails, and show the last log lines when GRUB cannot be installed (a full host disk under a virtual machine is the usual cause). The copy, GRUB and initramfs steps are logged to `/tmp/abyss-install.log`.
+* Boot: GRUB waits 1 second instead of 2, and the `virtio_rng` driver is in the initramfs so virtual machines no longer stall about 4 seconds waiting for entropy.
+* ISO audit: fail the build when `/var/lib/lightdm`, `/etc/doas.conf` or the sudo power rule has the wrong owner or mode.
+* Bring back the Abyss wallpaper: since 27.2 the image had no program to draw it, so the desktop was plain black. `feh` is installed again (a dependency of `abyss-desktop`, so a system update restores the wallpaper at the next login) and one helper, `abyss-wallpaper`, draws it once per login. **Settings › Display › Wallpaper: Abyss / black (OLED)** switches it; `~/.config/abyss/wallpaper` holds `none` or the path of your own image.
+
+* Fix the slock privilege-drop group on Void and coordinate suspend with its lock readiness.
+* Start the desktop D-Bus session before audio services and coordinate xss-lock sleep requests with slock after the screen is locked.
+* Add bounded st scrollback, reduce battery polling, and offer optional terminal, TeX, and media bundles.
+* Add Vim TeX build and SyncTeX navigation, clipboard media playback, and an X11 screen recorder.
 
 * Repair the malformed Rofi configuration shipped in older Abyss images while preserving user edits and backing up the original file.
 * Update the download links, release counter, and checksums in the README for 27.3.

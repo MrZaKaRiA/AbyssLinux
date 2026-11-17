@@ -1,6 +1,12 @@
 #!/bin/sh
 # ~/.xinitrc - Abyss Linux minimal suckless desktop
 
+# Start the session bus before any user services, including PipeWire.
+if command -v dbus-run-session >/dev/null 2>&1 && [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ] && [ -z "${ABYSS_DBUS_STARTED:-}" ]; then
+    export ABYSS_DBUS_STARTED=1
+    exec dbus-run-session /bin/sh "$0" "$@"
+fi
+
 export PATH="/usr/local/bin:${HOME}/.local/bin:${PATH}"
 
 if [ -z "${XDG_RUNTIME_DIR:-}" ] || [ ! -w "${XDG_RUNTIME_DIR}" ]; then
@@ -47,10 +53,10 @@ xmenu.width: $(( 260 * abyss_dpi / 96 ))
 xmenu.height: $(( 28 * abyss_dpi / 96 ))
 EOF
 fi
+command -v abyss-cursor >/dev/null 2>&1 && abyss-cursor "$abyss_dpi"
 unset abyss_dpi abyss_h abyss_apple_vm
 
-# OLED-friendly black desktop background; enable optional idle blanking from
-# the display menu. This avoids requiring a wallpaper daemon in the base ISO.
+# Optional idle blanking for OLED screens, toggled from the display menu.
 if [ "$(cat "$HOME/.config/abyss/oled-blanking" 2>/dev/null)" = 1 ]; then
     xset s 600 600; xset +dpms; xset dpms 600 600 600
 else
@@ -70,23 +76,25 @@ command -v abyss-display >/dev/null 2>&1 && abyss-display --restore >/dev/null 2
 command -v xdg-user-dirs-update >/dev/null 2>&1 && xdg-user-dirs-update
 
 # Start optional PipeWire components if the user installed audio support.
-if command -v pipewire >/dev/null 2>&1 && ! pgrep -x pipewire >/dev/null 2>&1; then
+if command -v pipewire >/dev/null 2>&1 && ! pgrep -u "$(id -u)" -x pipewire >/dev/null 2>&1; then
     pipewire &
 fi
-if command -v wireplumber >/dev/null 2>&1 && ! pgrep -x wireplumber >/dev/null 2>&1; then
+if command -v wireplumber >/dev/null 2>&1 && ! pgrep -u "$(id -u)" -x wireplumber >/dev/null 2>&1; then
     wireplumber &
 fi
-if command -v pipewire-pulse >/dev/null 2>&1 && ! pgrep -x pipewire-pulse >/dev/null 2>&1; then
+if command -v pipewire-pulse >/dev/null 2>&1 && ! pgrep -u "$(id -u)" -x pipewire-pulse >/dev/null 2>&1; then
     pipewire-pulse &
+fi
+# xss-lock listens for elogind sleep/lock requests, including lid close.
+if [ -z "${ABYSS_LOCK_LISTENER_STARTED:-}" ] && command -v xss-lock >/dev/null 2>&1 && command -v slock >/dev/null 2>&1 && ! pgrep -u "$(id -u)" -x xss-lock >/dev/null 2>&1; then
+    xss-lock --transfer-sleep-lock -- slock &
 fi
 /usr/local/bin/dwm-statusbar &
 
-# Set Abyss cosmic background
-if command -v feh >/dev/null 2>&1 && [ -f /usr/share/backgrounds/abyss/abyss-wallpaper.jpg ]; then
-    feh --bg-fill /usr/share/backgrounds/abyss/abyss-wallpaper.jpg &
-else
-    xsetroot -solid "#000000" &
-fi
+# Desktop background: the Abyss wallpaper, or the choice saved in
+# ~/.config/abyss/wallpaper ("none" for plain black, or the path of an image).
+if command -v abyss-wallpaper >/dev/null 2>&1; then abyss-wallpaper &
+else xsetroot -solid "#000000" & fi
 
 # Offer the optional setup window on first login (the user can defer it).
 command -v abyss-setup >/dev/null 2>&1 && abyss-setup --first-run &

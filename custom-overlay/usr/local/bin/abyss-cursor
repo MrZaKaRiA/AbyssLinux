@@ -1,0 +1,93 @@
+#!/bin/sh
+# Keep the X pointer legible: sized for the screen it is on, and never smaller
+# than the Abyss text scale.
+# Usage: abyss-cursor [dpi]; without an argument use the saved or automatic DPI.
+#
+# A fixed size wins over the automatic one, first match:
+#   ~/.config/abyss/cursor-size   (Menu > Settings > Display > Pointer size)
+#   /etc/abyss/cursor-size        (everyone, including the login screen)
+#   $XCURSOR_SIZE
+set -u
+
+is_num() { case "$1" in ''|*[!0-9]*) return 1 ;; esac; [ "${#1}" -le 3 ]; }
+
+dpi=${1:-}
+if [ -z "$dpi" ] && [ -r "${HOME:-/nonexistent}/.config/abyss/dpi" ]; then
+    dpi=$(tr -dc 0-9 < "$HOME/.config/abyss/dpi")
+fi
+apple_vm=
+grep -qs '^Apple' /sys/class/dmi/id/sys_vendor && apple_vm=1
+grep -qsx '0x106b' /sys/bus/pci/devices/*/subsystem_vendor && apple_vm=1
+# Largest connected output: width, height in pixels and in EDID millimetres.
+set -- $(xrandr --query 2>/dev/null | awk '$2 == "connected" {
+    w=0; h=0; mw=0; mh=0
+    for (i=3; i<=NF; i++) {
+        if ($i ~ /^[0-9]+x[0-9]+[+-]/) {v=$i; sub(/[+-].*/, "", v); split(v,a,"x"); w=a[1]+0; h=a[2]+0}
+        else if ($i ~ /^[0-9]+mm$/) {m=$i; sub(/mm/, "", m); if (mw == 0) mw=m+0; else mh=m+0}
+    }
+    if (w*h > bw*bh) {bw=w; bh=h; bmw=mw; bmh=mh}
+} END {print bw+0, bh+0, bmw+0, bmh+0}')
+width=${1:-0} height=${2:-0} mm_w=${3:-0} mm_h=${4:-0}
+if [ -z "$dpi" ]; then
+    if [ -n "$apple_vm" ] || [ "$height" -ge 1700 ]; then dpi=192
+    elif [ "$height" -ge 1300 ]; then dpi=144
+    else dpi=96; fi
+fi
+# Bound untrusted configuration before arithmetic.
+is_num "$dpi" || dpi=96
+dpi=$(printf '%s' "$dpi" | sed 's/^0*//')
+[ -n "$dpi" ] || dpi=96
+[ "$dpi" -ge 72 ] && [ "$dpi" -le 384 ] || dpi=96
+
+# 1. Follow the text scale: 32 px at 96 DPI.
+size=$(( (32 * dpi + 48) / 96 ))
+
+# 2. Follow the screen, so a 4K panel at 100% text still gets a usable pointer.
+#    Physical size is used when the display reports a believable one (not a
+#    VM, a real width, the same shape as the pixel mode); otherwise the pixel
+#    count of the short side decides.
+screen=0
+if [ -z "$apple_vm" ] && [ "$mm_w" -ge 100 ] && [ "$mm_h" -gt 0 ] && [ "$width" -gt 0 ] && [ "$height" -gt 0 ]; then
+    skew=$(( width * mm_h - height * mm_w )); [ "$skew" -lt 0 ] && skew=$(( -skew ))
+    real_dpi=$(( width * 254 / (mm_w * 10) ))
+    if [ $(( skew * 10 )) -le $(( width * mm_h )) ] && [ "$real_dpi" -ge 60 ] && [ "$real_dpi" -le 400 ]; then
+        screen=$(( real_dpi / 3 ))
+    fi
+fi
+if [ "$screen" -eq 0 ]; then
+    short=$height; [ "$width" -gt 0 ] && [ "$width" -lt "$height" ] && short=$width
+    if [ "$short" -ge 2500 ]; then screen=96
+    elif [ "$short" -ge 1700 ]; then screen=64
+    elif [ "$short" -ge 1300 ]; then screen=48
+    else screen=32; fi
+fi
+[ "$screen" -gt "$size" ] && size=$screen
+# Cursor themes ship a few sizes; ask for one of them.
+if [ "$size" -le 26 ]; then size=24
+elif [ "$size" -le 40 ]; then size=32
+elif [ "$size" -le 56 ]; then size=48
+elif [ "$size" -le 80 ]; then size=64
+else size=96; fi
+
+# 3. A fixed size wins.
+fixed=
+for f in "${HOME:-/nonexistent}/.config/abyss/cursor-size" /etc/abyss/cursor-size; do
+    [ -r "$f" ] || continue
+    v=$(tr -dc 0-9 < "$f" | sed 's/^0*//')
+    if is_num "$v" && [ "$v" -ge 16 ] && [ "$v" -le 256 ]; then fixed=$v; break; fi
+done
+if [ -z "$fixed" ] && is_num "${XCURSOR_SIZE:-}" && [ "$XCURSOR_SIZE" -ge 1 ]; then fixed=$XCURSOR_SIZE; fi
+[ -n "$fixed" ] && size=$fixed
+
+[ "${ABYSS_CURSOR_PRINT:-}" = 1 ] && { echo "$size"; exit 0; }
+command -v xrdb >/dev/null 2>&1 || exit 0
+resources=$(xrdb -query 2>/dev/null || :)
+if printf '%s\n' "$resources" | grep -qi '^Xcursor\.theme:'; then
+    printf 'Xcursor.size: %s\n' "$size" | xrdb -merge
+else
+    printf 'Xcursor.theme: Adwaita\nXcursor.size: %s\n' "$size" | xrdb -merge
+fi
+# Refresh the pointer over the desktop; running applications may need a restart.
+if command -v xsetroot >/dev/null 2>&1; then
+    XCURSOR_SIZE="$size" xsetroot -cursor_name left_ptr 2>/dev/null || :
+fi

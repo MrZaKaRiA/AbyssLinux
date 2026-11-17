@@ -1,0 +1,17 @@
+#!/bin/sh
+# Record the X11 desktop without audio; press q in this terminal to finish.
+set -eu
+command -v ffmpeg >/dev/null 2>&1 || { echo 'Install Media tools from the Software menu.' >&2; exit 1; }
+[ -n "${DISPLAY:-}" ] || { echo 'An X11 session is required.' >&2; exit 1; }
+if command -v xdg-user-dir >/dev/null 2>&1; then
+    videos=$(xdg-user-dir VIDEOS)
+else
+    videos=$HOME/Videos
+fi
+[ -n "$videos" ] || videos=$HOME/Videos
+mkdir -p "$videos" || exit 1
+output="$videos/Abyss-$(date '+%Y-%m-%d_%H-%M-%S')-$$.mkv"
+size=$(xrandr --current 2>/dev/null | awk '/ current / {for (i=1; i<=NF; i++) if ($i == "current") {gsub(/,/, "", $(i+3)); print $(i+1) "x" $(i+3); exit}}')
+case "$size" in *[!0-9x]*|''|x*|*x) echo 'Could not determine X11 screen size.' >&2; exit 1 ;; esac
+printf 'Recording to %s\nPress q to finish.\n' "$output"
+exec ffmpeg -n -f x11grab -video_size "$size" -framerate 30 -i "${DISPLAY}+0,0" -c:v mpeg4 -q:v 4 "$output"

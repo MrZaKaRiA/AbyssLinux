@@ -3,7 +3,7 @@
 # abyss-mklive-tweaks.sh <mklive-dir>
 # Applies Abyss boot-screen tweaks to a *working copy* of void-mklive before
 # mklive.sh runs. The vendored ./void-mklive tree is never modified.
-#   - live GRUB menu hidden (hold Esc/Shift to show it), 2 s timeout
+#   - live GRUB menu hidden (hold Esc/Shift to show it), 1 s timeout
 #   - ISO volume label ABYSS_LIVE instead of VOID_LIVE
 #   - live hostname abyss-live instead of void-live
 #   - Abyss PMR signing key added to keys/ (trusted repository)
@@ -19,18 +19,27 @@ PRE="$MK/grub/grub_void.cfg.pre"
 [ -f "$PRE" ] || { echo "abyss-mklive-tweaks: $PRE not found" >&2; exit 1; }
 
 sed -i \
-    -e 's/^timeout=[0-9]*$/timeout=2/' \
+    -e 's/^timeout=[0-9]*$/timeout=1/' \
     -e 's/^timeout_style=.*/timeout_style=hidden/' \
     "$PRE"
 
 grep -q '^timeout_style=hidden' "$PRE" || { echo "abyss-mklive-tweaks: could not set hidden menu" >&2; exit 1; }
-echo "[abyss] live GRUB menu: hidden, timeout 2s"
+echo "[abyss] live GRUB menu: hidden, timeout 1s"
 
 # Volume label: GRUB root=live:CDLABEL=..., xorriso -volid, isolinux entries
 for f in "$MK/mklive.sh" "$MK/isolinux/isolinux.cfg.in"; do
     [ -f "$f" ] && sed -i 's/VOID_LIVE/ABYSS_LIVE/g' "$f"
 done
 echo "[abyss] ISO volume label: ABYSS_LIVE"
+
+# Live initrd: virtio_rng, so virtual machines do not stall ~4 s at boot waiting
+# for entropy. Only added when missing, so a second run changes nothing.
+MKLIVE="$MK/mklive.sh"
+if [ -f "$MKLIVE" ]; then
+    sed -i '/--add-drivers "/{/virtio_rng/!s/\(--add-drivers "[^"]*\)"/\1 virtio_rng"/;}' "$MKLIVE"
+fi
+grep -q -- '--add-drivers "[^"]*virtio_rng' "$MKLIVE" || { echo "abyss-mklive-tweaks: could not add virtio_rng to the live initrd" >&2; exit 1; }
+echo "[abyss] live initrd: virtio_rng added"
 
 # Live hostname written by the dracut live hook
 ADDUSER="$MK/dracut/vmklive/adduser.sh"

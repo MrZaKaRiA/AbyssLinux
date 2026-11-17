@@ -7,6 +7,7 @@
 #include <ctype.h>
 #include <errno.h>
 #include <grp.h>
+#include <limits.h>
 #include <pwd.h>
 #include <stdarg.h>
 #include <stdlib.h>
@@ -299,6 +300,24 @@ lockscreen(Display *dpy, struct xrandr *rr, int screen)
 	return NULL;
 }
 
+/* xss-lock transfers the suspend inhibitor until the screen is locked. */
+static int
+get_xss_sleep_lock_fd(void)
+{
+	char *value = getenv("XSS_SLEEP_LOCK_FD"), *end;
+	long fd;
+
+	if (!value || !*value)
+		return -1;
+	errno = 0;
+	fd = strtol(value, &end, 10);
+	if (errno || *end || fd < 3 || fd > INT_MAX) {
+		fprintf(stderr, "slock: invalid XSS_SLEEP_LOCK_FD\n");
+		return -1;
+	}
+	return (int)fd;
+}
+
 static void
 usage(void)
 {
@@ -315,7 +334,7 @@ main(int argc, char **argv) {
 	gid_t dgid;
 	const char *hash;
 	Display *dpy;
-	int s, nlocks, nscreens;
+	int s, nlocks, nscreens, lockfd;
 
 	if (argc > 1 && !strcmp(argv[1], "-v")) {
 		puts("slock-"VERSION);
@@ -323,6 +342,8 @@ main(int argc, char **argv) {
 	} else if (argc > 1) {
 		usage();
 	}
+
+	lockfd = get_xss_sleep_lock_fd();
 
 	/* validate drop-user and -group */
 	errno = 0;
@@ -374,6 +395,10 @@ main(int argc, char **argv) {
 	/* did we manage to lock everything? */
 	if (nlocks != nscreens)
 		return 1;
+
+	/* Release the sleep delay only after every screen is locked. */
+	if (lockfd >= 0 && close(lockfd) < 0)
+		fprintf(stderr, "slock: closing sleep lock: %s\n", strerror(errno));
 
 	/* everything is now blank. Wait for the correct password */
 	readpw(dpy, &rr, locks, nscreens, hash);

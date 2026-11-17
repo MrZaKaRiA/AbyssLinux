@@ -3,7 +3,9 @@
 # abyss-control-center - the single top-right menu of Abyss Linux
 #
 # Opened by dwm when you click the status bar or press Super+Escape. The
-# dmenu-first tree keeps the installed desktop small:
+# dmenu-first tree keeps the installed desktop small. The first screen is the
+# quick actions and the categories; a category opens its own list, and typing
+# at the first screen still searches every entry of every category:
 #
 #   user@host · uptime                       (header: opens System info)
 #   Terminal · Files · Web browser           (quick launch)
@@ -21,7 +23,6 @@
 # ==============================================================================
 
 PATH="/usr/local/bin:${HOME}/.local/bin:${PATH}"
-WALLPAPER=/usr/share/backgrounds/abyss/abyss-wallpaper.jpg
 # Sizes at 96 dpi, scaled by Xft.dpi (set by ~/.xinitrc for HiDPI screens)
 DPI=$(xrdb -query 2>/dev/null | awk '$1 == "Xft.dpi:" {print int($2); exit}')
 [ "${DPI:-0}" -ge 48 ] 2>/dev/null || DPI=96
@@ -125,6 +126,8 @@ menu_tree_raw() {
   Web browser	browser
   Take screenshot	screenshot
   Select screenshot area	screenshot-area
+  Play clipboard URL	play-clipboard
+  Record screen	record-screen
 󰀻  Applications
 EOF
     has abyss-apps && abyss-apps --xmenu 1
@@ -148,9 +151,13 @@ EOF
 		󰝟  Mute / unmute	vol-mute
 		󰝚  Audio devices (terminal)	audio-tui
 	󰍹  Display
+		󰍹  Refresh rate (keeps resolution)	display-rate
 		󰍹  Resolution and refresh rate	display-gui
 		󰍺  Detect displays again	display-auto
+		󰇀  Pointer size	pointer-size
 		󰖨  OLED screen blanking: toggle 10 min	oled-toggle
+		󰖨  Wallpaper: Abyss	wallpaper-abyss
+		󰖨  Wallpaper: black (OLED)	wallpaper-none
 		  Text size: automatic (recommended)	dpi-auto
 		  Text size: 100% (96 DPI)	dpi-96
 		  Text size: 150% (144 DPI)	dpi-144
@@ -196,7 +203,10 @@ menu_flat() {
             if (label == "") next
             if (label ~ /^[^ -~]/) sub(/^[^ ]* +/, "", label)   # drop a leading glyph
             path[depth] = label
-            if (action == "") next                              # submenu header
+            if (action == "") {                                 # submenu header
+                if (depth == 0) print label " ›\tmenu:" label   # category row
+                next
+            }
             out = ""
             for (i = 0; i < depth; i++) out = out path[i] " › "
             print out label "\t" action
@@ -208,8 +218,28 @@ choose() {
         # shellcheck disable=SC2046
         menu_tree | xmenu $(menu_pos)
     elif has dmenu; then
-        sel=$(menu_flat | cut -f1 | dmenu_theme -p "Abyss")
-        [ -n "$sel" ] && menu_flat | awk -F'\t' -v s="$sel" '$1 == s {print $2; exit}'
+        flat=$(menu_flat); scope=
+        while :; do
+            if [ -z "$scope" ]; then
+                # Quick actions and categories first (they fit on one screen),
+                # then every entry, so typing finds anything.
+                list=$(printf '%s\n' "$flat" | awk -F'\t' '
+                    $1 ~ / › ./ { deep[++n] = $0; next }
+                    { print }
+                    END { for (i = 1; i <= n; i++) print deep[i] }')
+            else
+                list=$(printf '%s\n' "$flat" | awk -F'\t' -v p="$scope › " '
+                    index($1, p) == 1 { print substr($1, length(p) + 1) "\t" $2 }
+                    END { print "‹ Back\tmenu:" }')
+            fi
+            sel=$(printf '%s\n' "$list" | cut -f1 | dmenu_theme -p "${scope:-Abyss}") || return 0
+            [ -n "$sel" ] || return 0
+            action=$(printf '%s\n' "$list" | awk -F'\t' -v s="$sel" '$1 == s {print $2; exit}')
+            case "$action" in
+                menu:*) scope=${action#menu:} ;;
+                *) printf '%s\n' "$action"; return 0 ;;
+            esac
+        done
     else
         notify "Abyss menu" "dmenu is not installed"
     fi
@@ -226,7 +256,8 @@ automatic_dpi() {
 }
 
 apply_dpi() {
-    printf 'Xft.dpi: %s\nxmenu.width: %s\nxmenu.height: %s\n' "$1" $((260 * $1 / 96)) $((28 * $1 / 96)) | xrdb -merge
+    printf 'Xft.dpi: %s\nxmenu.width: %s\nxmenu.height: %s\n' "$1" $((260 * $1 / 96)) $((28 * $1 / 96)) | xrdb -merge || return
+    command -v abyss-cursor >/dev/null 2>&1 && abyss-cursor "$1" || :
 }
 
 set_dpi() {
@@ -241,11 +272,32 @@ set_dpi() {
         mkdir -p "$HOME/.config/abyss"
         if [ "$choice" = auto ]; then rm -f "$HOME/.config/abyss/dpi"
         else printf '%s\n' "$new_dpi" > "$HOME/.config/abyss/dpi"; fi
-        notify "Text size saved" "New windows use the new size. Log out and back in for the bar and open apps."
+        notify "Text size saved" "New windows use the new text and pointer sizes. Log out and back in for all apps."
     else
         apply_dpi "$old_dpi"
         notify "Text size restored" "The previous size was kept."
     fi
+}
+
+# Pointer size: automatic follows the screen; a fixed size is kept in
+# ~/.config/abyss/cursor-size and read by abyss-cursor.
+set_pointer_size() {
+    conf="$HOME/.config/abyss/cursor-size"
+    now=$(cat "$conf" 2>/dev/null)
+    auto=$(HOME=/nonexistent XCURSOR_SIZE= ABYSS_CURSOR_PRINT=1 abyss-cursor "$DPI" 2>/dev/null)
+    sel=$({
+        printf 'Automatic for this screen%s\n' "${auto:+ (now $auto px)}"
+        for s in 24 32 48 64 96; do
+            printf '%s px%s\n' "$s" "$([ "$now" = "$s" ] && printf '  (current)')"
+        done
+    } | dmenu_theme -p 'Pointer size') || return 0
+    case "$sel" in
+        '') return 0 ;;
+        Automatic*) rm -f "$conf" ;;
+        *) mkdir -p "${conf%/*}"; printf '%s\n' "${sel%% *}" > "$conf" ;;
+    esac
+    abyss-cursor
+    notify "Pointer size" "The desktop pointer changes now. Windows that are already open keep the old size until they are reopened."
 }
 
 act() {
@@ -280,6 +332,15 @@ act() {
                       fi ;;
         screenshot)   abyss-screenshot --screen ;;
         screenshot-area) abyss-screenshot --area ;;
+        record-screen) if has ffmpeg; then term "Screen recording" abyss-record; else notify "Media tools unavailable" "Install the media tools bundle from Software."; fi ;;
+        play-clipboard)
+            if has xclip && has mpv; then
+                url=$(xclip -selection clipboard -o 2>/dev/null)
+                case "$url" in
+                    https://*|http://*) setsid -f mpv -- "$url" >/dev/null 2>&1 ;;
+                    *) notify "No web URL in clipboard" "Copy an HTTP or HTTPS URL first." ;;
+                esac
+            else notify "Media tools unavailable" "Install the media tools bundle from Software."; fi ;;
         code)         if [ -x "$HOME/.local/opt/vscode/code" ]; then
                           setsid -f "$HOME/.local/opt/vscode/code" >/dev/null 2>&1
                       elif has code; then first "code"
@@ -304,7 +365,10 @@ act() {
         vol-down)     if has wpctl; then wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-; else notify "Audio is not installed" "Install PipeWire from Install software."; fi ;;
         vol-mute)     if has wpctl; then wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle; else notify "Audio is not installed" "Install PipeWire from Install software."; fi ;;
         display-gui)  abyss-display ;;
-        display-auto) xrandr --auto && notify "Displays" "Outputs re-detected" ;;
+        display-rate) abyss-display --rate ;;
+        display-auto) abyss-display --auto && notify "Displays" "Outputs re-detected" ;;
+        pointer-size) if has abyss-cursor; then set_pointer_size
+                      else notify "Pointer size" "Update Abyss to get the pointer size setting."; fi ;;
         oled-toggle)  conf="$HOME/.config/abyss/oled-blanking"; mkdir -p "${conf%/*}"
                       if [ "$(cat "$conf" 2>/dev/null)" = 1 ]; then
                           echo 0 > "$conf"; xset s off; xset -dpms; notify "OLED blanking off" "The display will stay on while idle."
@@ -317,7 +381,8 @@ act() {
         kbd-swap)     abyss-keyboard --swap-super ;;
         kbd-test)     abyss-keyboard --test ;;
         kbd-status)   notify "Keyboard" "$(abyss-keyboard --status 2>&1)" ;;
-        wallpaper)    [ -f "$WALLPAPER" ] && feh --no-fehbg --bg-fill "$WALLPAPER" ;;
+        wallpaper)    abyss-wallpaper ;;
+        wallpaper-abyss|wallpaper-none) abyss-wallpaper "${1#wallpaper-}" ;;
         gtk-settings) first "lxappearance" "nwg-look" || notify "Abyss theme" "GTK theme Abyss and icon theme Abyss are set in /etc/xdg/gtk-3.0/settings.ini" ;;
 
         monitor)      if has btop; then term "System monitor" btop

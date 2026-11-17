@@ -59,7 +59,7 @@ cp -a /workspace/custom-overlay /build/overlay
 
 cd /build/void-mklive
 
-PKGS_INSTALLER="dialog parted gdisk cryptsetup lvm2 mdadm xtools-minimal xmirror dosfstools efibootmgr grub grub-arm64-efi"
+PKGS_INSTALLER="dialog parted gptfdisk cryptsetup lvm2 mdadm xtools-minimal xmirror dosfstools efibootmgr grub grub-arm64-efi"
 PKGS_INPUT="xf86-input-libinput xf86-input-evdev xorg-input-drivers"
 # The installed image is intentionally small: system plumbing, networking,
 # the LightDM login, Xorg, and Abyss's suckless desktop. User applications are
@@ -69,7 +69,7 @@ PKGS_ABYSS="${PKGS_ABYSS} lightdm lightdm-gtk-greeter"
 # Abyss builds of the suckless tools, from the signed Abyss PMR
 # (https://github.com/MrZaKaRiA/AbyssLinuxPMR); they replace Void's st/dwm/dmenu
 ABYSS_PMR="${ABYSS_PMR:-https://mrzakaria.github.io/AbyssLinuxPMR/current}"
-PKGS_SUCKLESS="abyss-dwm abyss-st abyss-dmenu abyss-slock abyss-tabbed abyss-wmname abyss-theme nsxiv"
+PKGS_SUCKLESS="abyss-dwm abyss-st abyss-dmenu abyss-slock abyss-tabbed abyss-wmname abyss-theme nsxiv feh"
 
 # Silent boot (later loglevel= overrides mklive's built-in loglevel=4)
 ABYSS_BOOT_CMDLINE="quiet loglevel=3 rd.udev.log_level=3 udev.log_level=3 vt.global_cursor_default=0"
@@ -80,7 +80,7 @@ export SPLASH_IMAGE=/workspace/custom-overlay/usr/share/backgrounds/abyss/abyss-
 # (text consoles stay on tty2-tty6). mklive reads this from the environment.
 export DEFAULT_SERVICE_LIST="agetty-tty2 agetty-tty3 agetty-tty4 agetty-tty5 agetty-tty6 udevd"
 
-PKGS_BUILD="base-system curl ca-certificates xorg-minimal xf86-video-fbdev ${PKGS_INPUT} ${PKGS_INSTALLER} ${PKGS_ABYSS} xinit xsetroot xset xrandr mesa-dri dbus elogind polkit NetworkManager ${PKGS_SUCKLESS} font-jetbrains-mono-ttf nerd-fonts-symbols-ttf"
+PKGS_BUILD="base-system curl ca-certificates xorg-minimal xss-lock xf86-video-fbdev ${PKGS_INPUT} ${PKGS_INSTALLER} ${PKGS_ABYSS} xinit xsetroot xset xrandr mesa-dri dbus elogind polkit NetworkManager ${PKGS_SUCKLESS} font-jetbrains-mono-ttf nerd-fonts-symbols-ttf"
 SERVICES_BUILD="dbus elogind polkit NetworkManager lightdm"
 build_failed=0
 rm -f /workspace/.abyss-build-result
