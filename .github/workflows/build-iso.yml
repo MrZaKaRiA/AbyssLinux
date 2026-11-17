@@ -23,6 +23,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # migration tests read old file versions from git history
       - name: Run desktop tests
         run: python3 -m unittest discover -s tests -v
   void-package-names:
