@@ -26,7 +26,7 @@ test -d "$work/root/usr/share/icons/Adwaita/cursors"
 test -x "$work/root/usr/local/bin/abyss-file-chooser-init"
 test -x "$work/root/usr/local/bin/abyss-rofi-repair"
 test -x "$work/root/usr/local/bin/abyss-thunar-init"
-grep -Fq 'ADW_DEBUG_COLOR_SCHEME' "$work/root/usr/local/bin/abyss-session"
+grep -Fq 'ADW_DEBUG_COLOR_SCHEME' "$work/root/usr/bin/abyss-session"
 grep -Fq '.thunar .shortcuts-pane' "$work/root/usr/share/themes/Abyss/gtk-3.0/gtk.css"
 test -x "$work/root/usr/bin/img"
 test ! -L "$work/root/usr/local/bin/abyss-welcome"
@@ -37,8 +37,8 @@ if grep -q '^}\";' "$work/root/etc/skel/.config/rofi/config.rasi"; then
 fi
 version=$(tr -d ' \n' < "$(dirname "$0")/../VERSION")
 grep -Fx "VERSION_ID=\"$version\"" "$work/root/usr/lib/os-release"
-grep -q 'Text size: automatic' "$work/root/usr/local/bin/abyss-control-center"
-xbps-query -r "$work/root" -p pkgver abyss-desktop | grep -Fx 'abyss-desktop-1.0_30'
+grep -q 'Text size: automatic' "$work/root/usr/bin/abyss-control-center"
+xbps-query -r "$work/root" -p pkgver abyss-desktop | grep -Fx 'abyss-desktop-1.0_31'
 xbps-query -r "$work/root" -p pkgver abyss-slock | grep -Fx 'abyss-slock-1.7_2'
 xbps-query -r "$work/root" -p pkgver abyss-st | grep -Fx 'abyss-st-0.9.3_2'
 xbps-query -r "$work/root" -p pkgver abyss-dwm | grep -Fx 'abyss-dwm-6.8_9'
@@ -58,9 +58,60 @@ if [ -e "$work/root/etc/runit/runsvdir/default/elogind" ] || [ -L "$work/root/et
     echo 'elogind is enabled as a runit service (it must be left to D-Bus activation)' >&2
     exit 1
 fi
-for sv in dbus polkit NetworkManager lightdm; do
+for sv in dbus polkit NetworkManager lightdm chronyd; do
     test -L "$work/root/etc/runit/runsvdir/default/$sv"
 done
+# Time synchronisation: chrony enabled (installed systems inherit the link),
+# with abyss-desktop's configuration and the once-per-system stamp, so a
+# user who disables it later is not overruled by an update
+xbps-query -r "$work/root" -p pkgver chrony
+test -f "$work/root/etc/sv/chronyd/run"
+grep -Fq 'OPTS="-f /usr/share/abyss/chrony.conf"' "$work/root/etc/sv/chronyd/conf"
+grep -Fxq 'include /etc/chrony.conf' "$work/root/usr/share/abyss/chrony.conf"
+test -f "$work/root/var/lib/abyss-desktop/time-sync-enabled"
+# /usr/local/bin: every abyss-desktop command is the managed wrapper, exactly
+# what INSTALL leaves on an updated system, never a full copy that shadows
+# the package; nothing else is there but the void-installer link
+wrappers="$work/root/usr/libexec/abyss-desktop/local-bin-wrappers"
+commands=$(sh "$wrappers" --list)
+test -n "$commands"
+for cmd in $commands; do
+    if ! sh "$wrappers" --print "$cmd" | cmp -s - "$work/root/usr/local/bin/$cmd" ||
+        [ "$(stat -c '%a %u:%g' "$work/root/usr/local/bin/$cmd")" != '755 0:0' ]; then
+        echo "/usr/local/bin/$cmd is not the abyss-desktop wrapper (755 root:root)" >&2
+        exit 1
+    fi
+done
+for f in "$work/root"/usr/local/bin/* "$work/root"/usr/local/bin/.[!.]*; do
+    [ -e "$f" ] || [ -L "$f" ] || continue
+    case " $(printf '%s ' $commands)void-installer " in
+        *" ${f##*/} "*) ;;
+        *) echo "unexpected /usr/local/bin/${f##*/} in the image" >&2; exit 1 ;;
+    esac
+done
+test "$(readlink "$work/root/usr/local/bin/void-installer")" = /usr/bin/void-installer
+# The overlay must not replace files abyss-desktop ships (updates fix those)
+overlay="$(dirname "$0")/../custom-overlay"
+while read -r f; do
+    if [ -e "$overlay$f" ] || [ -L "$overlay$f" ]; then
+        echo "custom-overlay$f replaces a file of abyss-desktop" >&2
+        exit 1
+    fi
+done < <(xbps-query -r "$work/root" -f abyss-desktop | sed 's/ -> .*//')
+# Installer: Abyss EFI boot entry, and the UTF-8 locale dialog falls back to
+# (glibc's built-in C.UTF-8 needs glibc >= 2.35)
+inst="$work/root/usr/bin/void-installer"
+grep -Fxq 'EFI_BOOTLOADER_ID=Abyss' "$inst"
+if grep -v '^[[:space:]]*#' "$inst" | grep -q 'void_grub'; then
+    echo 'void-installer still installs GRUB as void_grub' >&2
+    exit 1
+fi
+grep -q 'export LC_CTYPE=' "$inst"
+glibc=$(xbps-query -r "$work/root" -p pkgver glibc)
+if [ "$(printf '%s\n' glibc-2.35 "$glibc" | sort -V | head -n 1)" != glibc-2.35 ]; then
+    echo "$glibc has no built-in C.UTF-8 locale (needs 2.35 or later)" >&2
+    exit 1
+fi
 # Ownership and modes that break logins or privilege escalation when wrong
 lightdm_ids=$(awk -F: '$1 == "lightdm" {print $3 ":" $4}' "$work/root/etc/passwd")
 test -n "$lightdm_ids"

@@ -80,10 +80,12 @@ export SPLASH_IMAGE=/workspace/custom-overlay/usr/share/backgrounds/abyss/abyss-
 # (text consoles stay on tty2-tty6). mklive reads this from the environment.
 export DEFAULT_SERVICE_LIST="agetty-tty2 agetty-tty3 agetty-tty4 agetty-tty5 agetty-tty6 udevd"
 
-PKGS_BUILD="base-system curl ca-certificates xorg-minimal xss-lock xf86-video-fbdev ${PKGS_INPUT} ${PKGS_INSTALLER} ${PKGS_ABYSS} xinit xsetroot xset xrandr mesa-dri dbus elogind polkit NetworkManager ${PKGS_SUCKLESS} font-jetbrains-mono-ttf nerd-fonts-symbols-ttf"
+PKGS_BUILD="base-system curl ca-certificates xorg-minimal xss-lock xf86-video-fbdev ${PKGS_INPUT} ${PKGS_INSTALLER} ${PKGS_ABYSS} xinit xsetroot xset xrandr mesa-dri dbus elogind polkit NetworkManager chrony ${PKGS_SUCKLESS} font-jetbrains-mono-ttf nerd-fonts-symbols-ttf"
 # elogind is installed but not enabled: D-Bus starts it on demand. Enabling its
 # runit service made runit retry every second forever ("already running").
-SERVICES_BUILD="dbus polkit NetworkManager lightdm"
+# chrony keeps the clock right (TLS and package signatures need it); chronyd
+# is enabled here and, on systems installed earlier, by abyss-desktop's INSTALL.
+SERVICES_BUILD="dbus polkit NetworkManager lightdm chronyd"
 build_failed=0
 rm -f /workspace/.abyss-build-result
 

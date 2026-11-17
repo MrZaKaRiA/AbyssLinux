@@ -24,7 +24,7 @@ FIXTURES = Path(__file__).resolve().parent / 'fixtures'
 ARCHES = ('x86_64', 'aarch64')
 
 TOOLS = ('sh bash awk sed head tail cat cp rm mv mkdir tr cut sort grep sleep mktemp tee '
-         'env id dirname basename chmod').split()
+         'env id dirname basename chmod find touch').split()
 
 
 # CI sets this to a directory holding the live <arch>-repodata and
@@ -132,6 +132,8 @@ if [ "$1" = -l ]; then
     while read -r n; do echo "ii $n-1.0_1 description"; done < "$HOME/installed" 2>/dev/null
     exit 0
 fi
+# -L: the repositories and their package counts (-1: no lists on disk)
+if [ "$1" = -L ]; then cat "$HOME/repos" 2>/dev/null || echo "   8 https://repo-default.voidlinux.org/current/aarch64 (RSA signed)"; exit 0; fi
 if [ "$1" != -R ]; then grep -qx "$1" "$HOME/installed" 2>/dev/null; exit $(( $? ? 2 : 0 )); fi
 grep -qx "$2" "$HOME/missing" 2>/dev/null && exit 2
 echo "pkgver: $2-1.0_1"'''
@@ -170,7 +172,8 @@ class StubbedTest(unittest.TestCase):
         self.stub('notify-send', '''printf '%s\\n' "$*" >> "$HOME/notify.log"''')
         self.stub('setsid', '[ "$1" = -f ] && shift; printf \'%s\\n\' "$*" >> "$HOME/setsid.log"')
         self.env = {'HOME': str(self.root), 'PATH': str(self.bin), 'TMPDIR': str(self.root),
-                    'ABYSS_RETRY_PAUSE': '0', 'ABYSS_LOCK_POLL': '0'}
+                    'ABYSS_RETRY_PAUSE': '0', 'ABYSS_LOCK_POLL': '0',
+                    'ABYSS_SYNC_STAMP': str(self.root / 'synced')}
 
     def stub(self, name, body):
         path = self.bin / name
@@ -285,6 +288,54 @@ class InstallerTest(StubbedTest):
         self.assertIn('needs your password', out)
         self.assertNotIn('trying again', out)
         self.assertEqual(list(self.root.glob('abyss-elevate.*')), [])
+
+    # Package lists synced moments ago are not downloaded again ---------------
+    def syncs(self):
+        return self.log('xbps.log').count('-S')
+
+    def test_second_install_reuses_lists_synced_moments_ago(self):
+        self.software('--run-install', '--yes', 'maim')
+        self.assertEqual(self.syncs(), 1)
+        self.assertTrue((self.root / 'synced').exists())
+        out = self.software('--run-install', '--yes', 'vlc')
+        self.assertEqual(self.status, 0, out)
+        self.assertEqual(self.syncs(), 1, out)                # no second download
+        self.assertIn('Package lists are up to date (updated less than 30 minutes ago).', out)
+        self.assertIn('-y vlc', self.installs())
+
+    def test_stale_lists_are_synced_again(self):
+        self.software('--run-install', '--yes', 'maim')
+        os.utime(self.root / 'synced', (0, 0))                # synced long ago
+        out = self.software('--run-install', '--yes', 'vlc')
+        self.assertEqual(self.syncs(), 2, out)
+        self.assertNotIn('up to date', out)
+
+    def test_freshness_window_can_be_changed(self):
+        self.software('--run-install', '--yes', 'maim')
+        out = self.software('--run-install', '--yes', 'vlc', env={'ABYSS_SYNC_FRESH_MIN': '0'})
+        self.assertEqual(self.syncs(), 2, out)
+
+    def test_repository_without_lists_forces_a_sync(self):
+        self.software('--run-install', '--yes', 'maim')
+        self.write('repos', '   8 https://repo-default.voidlinux.org/current/aarch64 (RSA signed)\n'
+                            '  -1 https://repo-default.voidlinux.org/current/aarch64/nonfree (RSA maybe-signed)\n')
+        out = self.software('--run-install', '--yes', 'vlc')
+        self.assertEqual(self.syncs(), 2, out)
+
+    def test_failed_sync_is_not_remembered_and_is_retried_next_time(self):
+        self.write('sync-fail', '3')
+        self.write('sync-error', "ERROR: [reposync] failed to fetch file `x': Transient resolver failure\n")
+        self.software('--run-install', '--yes', 'maim')
+        self.assertEqual(self.syncs(), 3)
+        self.assertFalse((self.root / 'synced').exists())
+        out = self.software('--run-install', '--yes', 'vlc')
+        self.assertEqual(self.syncs(), 4, out)               # synced (and retried) again
+        self.assertNotIn('up to date', out)
+
+    def test_update_always_syncs(self):
+        self.software('--run-install', '--yes', 'maim')
+        out = self.software('--run-install', '--yes', '--update', 'firefox')
+        self.assertEqual(self.syncs(), 2, out)
 
     # Missing packages -------------------------------------------------------
     def test_missing_package_is_named_and_the_rest_is_installed(self):

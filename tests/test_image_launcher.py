@@ -9,9 +9,13 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
-IMG = Path(os.environ.get('ABYSS_IMG', ROOT / 'custom-overlay/usr/bin/img'))
+# img and the Images entry ship only in abyss-desktop (AbyssLinuxPMR): found
+# inside the PMR checkout, next to this checkout, or through the variables.
+PKG = next((p for p in (ROOT / 'srcpkgs/abyss-desktop', ROOT.parent / 'AbyssLinuxPMR/srcpkgs/abyss-desktop')
+            if (p / 'files/bin/img').is_file()), ROOT / 'srcpkgs/abyss-desktop')
+IMG = Path(os.environ.get('ABYSS_IMG', PKG / 'files/bin/img'))
 APPS = Path(os.environ.get('ABYSS_APPS', ROOT / 'custom-overlay/usr/local/bin/abyss-apps'))
-DESKTOP = Path(os.environ.get('ABYSS_IMAGES_DESKTOP', ROOT / 'custom-overlay/usr/share/applications/abyss-images.desktop'))
+DESKTOP = Path(os.environ.get('ABYSS_IMAGES_DESKTOP', PKG / 'files/abyss-images.desktop'))
 
 MOCK = '''#!/usr/bin/env python3
 import json, os, sys
@@ -19,6 +23,7 @@ with open(os.environ['ABYSS_IMAGE_LOG'], 'w') as out:
     json.dump([os.path.basename(sys.argv[0])] + sys.argv[1:], out)
 '''
 
+@unittest.skipUnless(IMG.is_file() and DESKTOP.is_file(), 'abyss-desktop package files not found; set ABYSS_IMG and ABYSS_IMAGES_DESKTOP')
 class ImageLauncherTest(unittest.TestCase):
     def test_img_preserves_file_arguments_and_opens_pictures_without_args(self):
         with tempfile.TemporaryDirectory(prefix='abyss-img-test-') as tmp:

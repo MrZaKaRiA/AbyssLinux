@@ -113,7 +113,7 @@ shasum -a 256 -c SHA256SUMS        # macOS
    * a 1 GB FAT32 EFI system partition on `/boot/efi`,
    * the rest as an ext4 root `/`,
    * the bootloader target, set automatically.
-4. Choose **Install**. The live system is copied to disk (the *Local* source, so no network is needed), GRUB is installed (with a removable `EFI/BOOT` fallback so it boots in VMs that forget NVRAM entries), and services are enabled.
+4. Choose **Install**. The live system is copied to disk (the *Local* source, so no network is needed), GRUB is installed (firmware boot entry **Abyss**, files in `EFI/Abyss` on the EFI partition, plus a removable `EFI/BOOT` fallback so it boots in VMs that forget NVRAM entries; systems installed with 27.3.3 or earlier keep their `void_grub` entry), and services are enabled.
 5. Reboot and remove the ISO. LightDM shows the Abyss login screen; after signing in, the desktop starts.
 
 ![Installer](docs/screenshots/installer.jpg)

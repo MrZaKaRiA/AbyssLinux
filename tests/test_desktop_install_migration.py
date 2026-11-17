@@ -3,11 +3,14 @@ runs it: wrapped in the header xbps-src generates, with the arguments xbps
 passes ($1=post $2=pkgname $3=version $4=update $5=conf $6=arch) and the
 system root as the working directory (here a temporary directory).
 
-Covers the two one-off migrations:
+Covers the one-off migrations:
   * /etc/profile.d/99-void-dev-cli.sh (image-only copy of the shell helpers)
     becomes a stub that loads the packaged zz-abyss-cli.sh, but only when it
     is byte-identical to a version an Abyss image shipped;
-  * the stock elogind runit link is removed once (D-Bus starts elogind).
+  * the stock elogind runit link is removed once (D-Bus starts elogind);
+  * chronyd (time synchronisation) is enabled once, unless another NTP
+    client is enabled, and never again after the user disabled it.
+The /usr/local/bin wrappers are covered by test_local_bin_wrappers.py.
 """
 import hashlib
 import os
@@ -27,6 +30,8 @@ SHIPPED = sorted((Path(__file__).resolve().parent / 'fixtures/99-void-dev-cli').
 OLD = 'etc/profile.d/99-void-dev-cli.sh'
 LINK = 'etc/runit/runsvdir/default/elogind'
 STAMP = 'var/lib/abyss-desktop/elogind-dbus-activated'
+CHRONY = 'etc/runit/runsvdir/default/chronyd'
+NTP_STAMP = 'var/lib/abyss-desktop/time-sync-enabled'
 
 # Same prologue as void-packages common/hooks/post-install/04-create-xbps-metadata-scripts.sh
 HEADER = '''#!/bin/sh
@@ -52,6 +57,10 @@ class InstallMigrationTest(unittest.TestCase):
         self.script = self.root.parent / f'{self.root.name}.INSTALL'
         self.script.write_text(HEADER + (Path(PKG) / 'INSTALL').read_text() + '\nexit 0\n')
         self.addCleanup(self.script.unlink)
+        # what unpacking the package puts on disk before INSTALL post runs
+        helper = self.root / 'usr/libexec/abyss-desktop/local-bin-wrappers'
+        helper.parent.mkdir(parents=True)
+        shutil.copy(Path(PKG) / 'files/local-bin-wrappers', helper)
 
     def install(self):
         result = subprocess.run(['/bin/sh', str(self.script), 'post', 'abyss-desktop', '1.0_30', 'yes', 'no', 'aarch64'],
@@ -144,6 +153,71 @@ class InstallMigrationTest(unittest.TestCase):
         self.path(LINK).symlink_to('/etc/sv/elogind')      # enabled later by the user
         self.install()
         self.assertTrue(self.path(LINK).is_symlink())
+
+    # -- time synchronisation ---------------------------------------------
+    def with_chrony(self):
+        run = self.path('etc/sv/chronyd/run')
+        run.parent.mkdir(parents=True)
+        run.write_text('#!/bin/sh\nexec chronyd -n -u chrony ${OPTS}\n')
+
+    def test_chronyd_is_enabled_once_with_the_abyss_configuration(self):
+        self.with_chrony()
+        out = self.install()
+        self.assertEqual(os.readlink(self.path(CHRONY)), '/etc/sv/chronyd')
+        self.assertIn('enabled chronyd', out)
+        self.assertTrue(self.path(NTP_STAMP).is_file())
+        conf = self.path('etc/sv/chronyd/conf').read_text()
+        self.assertIn('OPTS="-f /usr/share/abyss/chrony.conf"', conf)
+        # the runit run script sources it: the option is set only while the file exists
+        for exists, want in ((True, '-f /usr/share/abyss/chrony.conf'), (False, '')):
+            abyss_conf = self.root / 'abyss-chrony.conf'
+            if exists:
+                abyss_conf.write_text('')
+            elif abyss_conf.exists():
+                abyss_conf.unlink()
+            sourced = self.root / 'conf.sh'
+            sourced.write_text(conf.replace('/usr/share/abyss/chrony.conf', str(abyss_conf)))
+            got = subprocess.run(['sh', '-c', 'OPTS=; . "$1"; printf %s "$OPTS"', 'sh', str(sourced)],
+                                 stdout=subprocess.PIPE, text=True).stdout
+            self.assertEqual(got, want.replace('/usr/share/abyss/chrony.conf', str(abyss_conf)))
+        self.assertNotIn('chronyd', self.install())            # a second update does nothing
+
+    def test_disabled_chronyd_stays_disabled(self):
+        self.with_chrony()
+        self.install()
+        self.path(CHRONY).unlink()                               # the user turns it off
+        self.install()
+        self.assertFalse(os.path.lexists(self.path(CHRONY)))
+
+    def test_another_ntp_client_is_respected(self):
+        self.with_chrony()
+        for other in ('openntpd', 'ntpd', 'isc-ntpd', 'busybox-ntpd'):
+            with self.subTest(other):
+                link = self.path(f'etc/runit/runsvdir/default/{other}')
+                link.symlink_to(f'/etc/sv/{other}')
+                if self.path(NTP_STAMP).exists():
+                    self.path(NTP_STAMP).unlink()
+                out = self.install()
+                self.assertFalse(os.path.lexists(self.path(CHRONY)))
+                self.assertFalse(self.path('etc/sv/chronyd/conf').exists())
+                self.assertIn(f'left to the enabled {other} service', out)
+                self.assertTrue(self.path(NTP_STAMP).is_file())
+                link.unlink()
+
+    def test_an_existing_chronyd_conf_is_kept(self):
+        self.with_chrony()
+        self.path('etc/sv/chronyd/conf').write_text('OPTS="-r"\n')
+        self.install()
+        self.assertEqual(self.path('etc/sv/chronyd/conf').read_text(), 'OPTS="-r"\n')
+        self.assertTrue(self.path(CHRONY).is_symlink())
+
+    def test_without_chrony_nothing_is_recorded(self):
+        self.install()
+        self.assertFalse(os.path.lexists(self.path(CHRONY)))
+        self.assertFalse(self.path(NTP_STAMP).exists())         # tried again once chrony is there
+        self.with_chrony()
+        self.install()
+        self.assertTrue(self.path(CHRONY).is_symlink())
 
     @unittest.skipUnless(Path('/proc/self/comm').exists(), 'needs Linux /proc')
     def test_running_runit_elogind_is_not_stopped(self):

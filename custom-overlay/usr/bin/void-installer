@@ -63,6 +63,12 @@ if [ -w /proc/sys/kernel/printk ]; then
     echo 0 >/proc/sys/kernel/printk
 fi
 
+# Abyss: name of the firmware boot entry and of its folder on the ESP
+# (EFI/Abyss/grub*.efi). Void uses "void_grub"; systems installed before this
+# change keep that entry, which nothing re-creates (kernel and grub updates
+# only run grub-mkconfig, never grub-install).
+EFI_BOOTLOADER_ID=Abyss
+
 # Detect if this is an EFI system.
 if [ -e /sys/firmware/efi/systab ]; then
     EFI_SYSTEM=1
@@ -100,6 +106,28 @@ RESET="\Zn"
 if [ -z "$DIALOGRC" ] && [ -r /etc/dialogrc ]; then
     export DIALOGRC=/etc/dialogrc
 fi
+
+# Abyss: dialog draws multibyte text (the a-ring of "Norwegian Bokmal" in the
+# locale menu) only under a UTF-8 locale. The live user's doas rule has no
+# keepenv, so the installer starts with an empty environment, i.e. the C
+# locale, and dialog then prints each byte of a UTF-8 character on its own (a
+# bullet came out as "~@"). Dialog texts below use ASCII only. Switch the character set to UTF-8 unless it already is: glibc's
+# built-in C.UTF-8 first (glibc >= 2.35, always present), else the system
+# locale. Only LC_CTYPE changes; messages and sorting stay as they are.
+utf8_ctype() {
+    local l
+    [ "$(locale charmap 2>/dev/null)" = "UTF-8" ] && return 0
+    for l in C.UTF-8 "$(sed -n 's/^LANG=//p' /etc/locale.conf 2>/dev/null | tr -d '"' | tail -n 1)"; do
+        [ -n "$l" ] || continue
+        if [ "$(LC_ALL= LC_CTYPE="$l" locale charmap 2>/dev/null)" = "UTF-8" ]; then
+            unset LC_ALL
+            export LC_CTYPE="$l"
+            return 0
+        fi
+    done
+    return 1
+}
+utf8_ctype
 # The version placeholder is replaced at ISO build time (builder/abyss-postsetup.sh)
 BACKTITLE="${BOLD}${WHITE}Abyss Linux installer (@@MKLIVE_VERSION@@)${RESET}"
 
@@ -624,9 +652,9 @@ menu_partitions() {
                 FILESYSTEMS_DONE=1
 
                 if [ -n "$EFI_SYSTEM" ]; then
-                    DIALOG --msgbox "${BOLD}${GREEN}Automatic Partitioning Successful!${RESET}\n\nDisk ${BOLD}${device}${RESET} has been configured (UEFI):\n  • ${part1} (1GB) -> /boot/efi (FAT32 ESP)\n  • ${part2} (${rsize}) -> / (EXT4)\n  • Bootloader device set to ${device}\n\nFilesystems & Bootloader are now fully configured.\nYou can proceed directly to ${BOLD}Install${RESET}!" 16 70
+                    DIALOG --msgbox "${BOLD}${GREEN}Automatic Partitioning Successful!${RESET}\n\nDisk ${BOLD}${device}${RESET} has been configured (UEFI):\n  * ${part1} (1GB) -> /boot/efi (FAT32 ESP)\n  * ${part2} (${rsize}) -> / (EXT4)\n  * Bootloader device set to ${device}\n\nFilesystems & Bootloader are now fully configured.\nYou can proceed directly to ${BOLD}Install${RESET}!" 16 70
                 else
-                    DIALOG --msgbox "${BOLD}${GREEN}Automatic Partitioning Successful!${RESET}\n\nDisk ${BOLD}${device}${RESET} has been configured (BIOS/GPT):\n  • ${part1} (2MB) -> BIOS Boot Partition (GRUB)\n  • ${part2} (${rsize}) -> / (EXT4)\n  • Bootloader device set to ${device}\n\nFilesystems & Bootloader are now fully configured.\nYou can proceed directly to ${BOLD}Install${RESET}!" 16 70
+                    DIALOG --msgbox "${BOLD}${GREEN}Automatic Partitioning Successful!${RESET}\n\nDisk ${BOLD}${device}${RESET} has been configured (BIOS/GPT):\n  * ${part1} (2MB) -> BIOS Boot Partition (GRUB)\n  * ${part2} (${rsize}) -> / (EXT4)\n  * Bootloader device set to ${device}\n\nFilesystems & Bootloader are now fully configured.\nYou can proceed directly to ${BOLD}Install${RESET}!" 16 70
                 fi
                 return 0
             fi
@@ -963,8 +991,8 @@ set_bootloader() {
             fi
         fi
 
-        mkdir -p "$TARGETDIR/boot/efi/EFI/void_grub" "$TARGETDIR/boot/efi/EFI/BOOT" "$TARGETDIR/boot/grub"
-        grub_args="--target=$EFI_TARGET --efi-directory=/boot/efi --bootloader-id=void_grub --recheck"
+        mkdir -p "$TARGETDIR/boot/efi/EFI/$EFI_BOOTLOADER_ID" "$TARGETDIR/boot/efi/EFI/BOOT" "$TARGETDIR/boot/grub"
+        grub_args="--target=$EFI_TARGET --efi-directory=/boot/efi --bootloader-id=$EFI_BOOTLOADER_ID --recheck"
 
         echo "Running grub-install $grub_args..." >$LOG
         # Try standard EFI install first
@@ -980,12 +1008,16 @@ set_bootloader() {
         # Always ensure removable fallback EFI executable exists (critical for VMs like Lumen and fallback boot)
         case "$EFI_TARGET" in
             arm64-efi)
-                [ -f "$TARGETDIR/boot/efi/EFI/void_grub/grubaa64.efi" ] && \
-                    cp -f "$TARGETDIR/boot/efi/EFI/void_grub/grubaa64.efi" "$TARGETDIR/boot/efi/EFI/BOOT/BOOTAA64.EFI" 2>/dev/null || true
+                [ -f "$TARGETDIR/boot/efi/EFI/$EFI_BOOTLOADER_ID/grubaa64.efi" ] && \
+                    cp -f "$TARGETDIR/boot/efi/EFI/$EFI_BOOTLOADER_ID/grubaa64.efi" "$TARGETDIR/boot/efi/EFI/BOOT/BOOTAA64.EFI" 2>/dev/null || true
                 ;;
             x86_64-efi)
-                [ -f "$TARGETDIR/boot/efi/EFI/void_grub/grubx64.efi" ] && \
-                    cp -f "$TARGETDIR/boot/efi/EFI/void_grub/grubx64.efi" "$TARGETDIR/boot/efi/EFI/BOOT/BOOTX64.EFI" 2>/dev/null || true
+                [ -f "$TARGETDIR/boot/efi/EFI/$EFI_BOOTLOADER_ID/grubx64.efi" ] && \
+                    cp -f "$TARGETDIR/boot/efi/EFI/$EFI_BOOTLOADER_ID/grubx64.efi" "$TARGETDIR/boot/efi/EFI/BOOT/BOOTX64.EFI" 2>/dev/null || true
+                ;;
+            i386-efi)
+                [ -f "$TARGETDIR/boot/efi/EFI/$EFI_BOOTLOADER_ID/grubia32.efi" ] && \
+                    cp -f "$TARGETDIR/boot/efi/EFI/$EFI_BOOTLOADER_ID/grubia32.efi" "$TARGETDIR/boot/efi/EFI/BOOT/BOOTIA32.EFI" 2>/dev/null || true
                 ;;
         esac
     else
@@ -1498,23 +1530,98 @@ install_packages() {
     fi
 }
 
+# Services the checklist never shows, so the installer never enables or
+# disables them (extended regex on the service name):
+#   agetty-*, udevd, sulogin  needed exactly as they are
+#   elogind  (Abyss) D-Bus starts it on demand; enabling its runit service as
+#            well makes it restart in an endless loop
+#   polkitd  (Abyss) Void's polkit service; Abyss enables its own "polkit"
+#            service, which runs the same daemon (both would start it twice)
+SV_IGNORE='^(agetty-(tty[1-9]|generic|serial|console)|udevd|sulogin|elogind|polkitd)$'
+
+# Abyss: true when /etc/sv/$1/run in the target can start a program that is
+# installed there. Each "exec <program> ..." line counts, after wrappers
+# (chpst, env, nice, ionice, setsid, nohup) and their options; "pause" is the
+# placeholder a run script falls back to, so it does not count. A script whose
+# programs are all missing (ollama without the ollama package) is hidden; one
+# whose program cannot be told (a $variable, no exec line) is kept.
+sv_daemon_installed() {
+    local run="$TARGETDIR/etc/sv/$1/run" line prog d checked=0
+    local -a w
+    [ -r "$run" ] || return 1
+    while IFS= read -r line; do
+        read -r -a w <<<"$line"
+        set -- "${w[@]}"
+        prog=
+        while [ $# -gt 0 ]; do
+            case "$1" in
+                [0-9]\>*|[0-9]\<*|\>*|\<*|*=*) shift ;;
+                chpst)
+                    shift
+                    while [ $# -gt 0 ]; do
+                        case "$1" in
+                            -[uUbe/nlLmdopfcrt]) shift; [ $# -gt 0 ] && shift ;;
+                            -*) shift ;;
+                            *) break ;;
+                        esac
+                    done ;;
+                env|setsid|nohup) shift
+                    while [ $# -gt 0 ]; do
+                        case "$1" in -u) shift; [ $# -gt 0 ] && shift ;; -*|*=*) shift ;; *) break ;; esac
+                    done ;;
+                nice|ionice) shift
+                    while [ $# -gt 0 ]; do
+                        case "$1" in -[nc]) shift; [ $# -gt 0 ] && shift ;; -*) shift ;; *) break ;; esac
+                    done ;;
+                *) prog=$1; break ;;
+            esac
+        done
+        case "$prog" in
+            ""|pause|*/pause) continue ;;
+            *[\$\"\'\`]*) return 0 ;;
+            */*) [ -x "$TARGETDIR$prog" ] && return 0 ;;
+            *)
+                for d in usr/local/sbin usr/local/bin usr/sbin usr/bin sbin bin; do
+                    [ -x "$TARGETDIR/$d/$prog" ] && return 0
+                done ;;
+        esac
+        checked=1
+    done < <(sed -n 's/^[[:space:]]*exec[[:space:]][[:space:]]*//p' "$run")
+    [ $checked -eq 0 ]
+}
+
+# Abyss: the services the checklist offers, sorted, one per line
+list_services() {
+    local d sv
+    for d in "$TARGETDIR"/etc/sv/*/; do
+        [ -d "$d" ] || continue
+        sv=${d%/}; sv=${sv##*/}
+        echo "$sv"
+    done | grep -Ev "$SV_IGNORE" | sort -u | while read -r sv; do
+        sv_daemon_installed "$sv" && echo "$sv"
+    done
+}
+
 menu_services() {
-    local sv _status _checklist=""
-    # filter out services that probably shouldn't be messed with
-    local sv_ignore='^(agetty-(tty[1-9]|generic|serial|console)|udevd|sulogin)$'
-    find $TARGETDIR/etc/runit/runsvdir/default -mindepth 1 -maxdepth 1 -xtype d -printf '%f\n' | \
-        grep -Ev "$sv_ignore" | sort -u > "$TARGET_SERVICES"
+    local sv _status _checklist="" _services
+    _services=$(list_services)
+    # of those, the ones already enabled in the target (hidden services are
+    # left exactly as they are)
+    for sv in $_services; do
+        if [ -L "$TARGETDIR/etc/runit/runsvdir/default/$sv" ] || \
+           [ -e "$TARGETDIR/etc/runit/runsvdir/default/$sv" ]; then
+            echo "$sv"
+        fi
+    done > "$TARGET_SERVICES"
     while true; do
-        while read -r sv; do
-            if [ -n "$sv" ]; then
-                if grep -qx "$sv" "$TARGET_SERVICES" 2>/dev/null; then
-                    _status=on
-                else
-                    _status=off
-                fi
-                _checklist+=" ${sv} ${sv} ${_status}"
+        for sv in $_services; do
+            if grep -qx "$sv" "$TARGET_SERVICES" 2>/dev/null; then
+                _status=on
+            else
+                _status=off
             fi
-        done < <(find $TARGETDIR/etc/sv -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | grep -Ev "$sv_ignore" | sort -u)
+            _checklist+=" ${sv} ${sv} ${_status}"
+        done
         DIALOG --no-tags --checklist "Select services to enable:" 20 60 18 ${_checklist}
         if [ $? -eq 0 ]; then
             comm -13 "$TARGET_SERVICES" <(cat "$ANSWER" | tr ' ' '\n') | while read -r sv; do

@@ -74,6 +74,23 @@ explain_sync_failure() {  # explain_sync_failure LOG
     echo 'To retry, open Install software again, or run "update" in a terminal.'
 }
 
+# Package lists this script synced less than SYNC_FRESH_MIN minutes ago are
+# used as they are, so installing several things in a row downloads them
+# once. The stamp lives in /run (root only, empty after a reboot). xbps
+# leaves an unchanged repodata file untouched, so its own times cannot tell.
+SYNC_STAMP=${ABYSS_SYNC_STAMP:-/run/abyss-software.synced}
+SYNC_FRESH_MIN=${ABYSS_SYNC_FRESH_MIN:-30}
+
+# Are the package lists fresh? Not when a repository has none on disk
+# (xbps-query -L counts -1) or the repository configuration changed since.
+repos_fresh() {
+    [ "$SYNC_FRESH_MIN" -gt 0 ] 2>/dev/null && [ -f "$SYNC_STAMP" ] || return 1
+    [ -n "$(find "$SYNC_STAMP" -mmin "-$SYNC_FRESH_MIN" 2>/dev/null)" ] || return 1
+    [ -z "$(find /etc/xbps.d /usr/share/xbps.d -newer "$SYNC_STAMP" 2>/dev/null)" ] || return 1
+    lists=$(xbps-query -L 2>/dev/null) || return 1
+    [ -n "$lists" ] && ! printf '%s\n' "$lists" | grep -q '^[[:space:]]*-1[[:space:]]'
+}
+
 # Update the package lists, retrying network failures before giving up.
 # Returns 0 on success, 1 when a repository stayed unreachable, 2 when the
 # privilege tool refused (wrong password).
@@ -85,7 +102,9 @@ sync_repos() {
         # Stream the output: xbps may ask to import a repository key.
         { abyss-priv xbps-install -S; echo $? >"$log.rc"; } 2>&1 | tee "$log"
         rc=$(cat "$log.rc" 2>/dev/null || echo 1); rm -f "$log.rc"
-        if [ "$rc" -eq 0 ] && ! grep -q 'ERROR' "$log"; then rm -f "$log"; return 0; fi
+        if [ "$rc" -eq 0 ] && ! grep -q 'ERROR' "$log"; then
+            rm -f "$log"; : > "$SYNC_STAMP" 2>/dev/null; return 0
+        fi
         if grep -qiE 'authentication failed|incorrect password|not permitted|doas or sudo' "$log"; then
             rm -f "$log"; echo; echo 'Installing software needs your password (doas or sudo).'; return 2
         fi
@@ -141,7 +160,13 @@ run_install() {
     done
     arch=$(machine_arch)
     wait_for_xbps
-    sync_repos; rc=$?
+    # Installing reuses lists synced moments ago; updating always syncs.
+    if [ -z "$update" ] && repos_fresh; then
+        echo "Package lists are up to date (updated less than $SYNC_FRESH_MIN minutes ago)."
+        rc=0
+    else
+        sync_repos; rc=$?
+    fi
     [ "$rc" -eq 2 ] && return 1
     [ "$rc" -eq 0 ] || echo 'Continuing with the package lists already on this computer.'
     ok= missing= broken=

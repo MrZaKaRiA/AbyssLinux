@@ -1,5 +1,15 @@
 # Changelog
 
+## v27.3.4 (2026-11-17)
+
+* **Clock stays right:** Abyss now keeps the system time synchronised (chrony). Existing installs get it with the next update, once, unless another time service is already enabled; if you turn it off, it stays off. Virtual machines correct their clock right after the host wakes from sleep.
+* **No stale command copies:** new installs no longer put full copies of the Abyss commands in `/usr/local/bin` that hid package updates; they hold small wrappers to `/usr/bin`, exactly like an updated system. Updating an older install converts the copies without leaving `.abyss-backup` files, unless you edited one.
+* **Install software is faster:** it no longer downloads the package lists again when they were updated in the last 30 minutes. Update system always refreshes them.
+* **Menu:** Settings › Sound (and every other second-level submenu) now opens to the left, like Display, instead of covering the main menu. The menu always opens under the right end of the bar.
+* Installer: fixed "~@" appearing in place of bullets in the automatic partitioning summary. The installer now runs dialog with a UTF-8 character set even when doas starts it with an empty environment, and its dialog texts use plain ASCII.
+* Installer: new installs get an "Abyss" UEFI boot entry with GRUB in `EFI/Abyss` (removable `EFI/BOOT` fallback unchanged; 32-bit UEFI fallback added). Existing systems keep their `void_grub` entry, and updates never re-run grub-install.
+* Installer: the services list no longer offers services whose program isn't installed (such as ollama), the duplicate `polkitd` (Abyss enables `polkit`), or `elogind` (D-Bus starts it; its runit service restart-loops). Services hidden from the list keep their current state.
+
 ## v27.3.3 (2026-11-17)
 
 * Install software: fixed packages that "did not exist" (`Thunar` was misspelled, `pipewire-pulse` is not a Void package, and package search cut names short). Entries now show "✓ installed" or which parts are missing, and offer Open, Update or Remove. Installs wait with a clear message while another install runs, retry a failed repository sync, name exactly which packages are unavailable, ask before downloads over 500 MB, and end with a summary.

@@ -27,7 +27,7 @@ fi
 # Minimal bootable desktop: Void system, Xorg, network, login, and small
 # utilities that configure the Abyss session. User applications are installed
 # on demand from abyss-software after boot.
-PKGS_BASE_X11="base-system curl ca-certificates grub grub-arm64-efi grub-x86_64-efi efibootmgr dosfstools parted gptfdisk cryptsetup lvm2 mdadm xorg-minimal xss-lock xf86-video-fbdev xf86-input-libinput xinit xsetroot xset xrandr xrdb xmodmap setxkbmap xev mesa-dri dbus elogind polkit NetworkManager lightdm lightdm-gtk-greeter font-jetbrains-mono-ttf nerd-fonts-symbols-ttf opendoas"
+PKGS_BASE_X11="base-system curl ca-certificates grub grub-arm64-efi grub-x86_64-efi efibootmgr dosfstools parted gptfdisk cryptsetup lvm2 mdadm xorg-minimal xss-lock xf86-video-fbdev xf86-input-libinput xinit xsetroot xset xrandr xrdb xmodmap setxkbmap xev mesa-dri dbus elogind polkit NetworkManager chrony lightdm lightdm-gtk-greeter font-jetbrains-mono-ttf nerd-fonts-symbols-ttf opendoas"
 PKGS_INSTALLER="dialog xtools-minimal xmirror"
 # Abyss builds of the suckless tools from the signed Abyss PMR
 ABYSS_PMR="${ABYSS_PMR:-https://mrzakaria.github.io/AbyssLinuxPMR/current}"
@@ -36,7 +36,9 @@ PKGS_SUCKLESS="abyss-dwm abyss-st abyss-dmenu abyss-slock abyss-tabbed abyss-wmn
 ALL_PACKAGES="${PKGS_BASE_X11} ${PKGS_INSTALLER} ${PKGS_SUCKLESS}"
 # elogind is installed but not enabled: D-Bus starts it on demand. Enabling its
 # runit service made runit retry every second forever ("already running").
-ENABLED_SERVICES="dbus polkit NetworkManager lightdm"
+# chrony keeps the clock right (TLS and package signatures need it); chronyd
+# is enabled here and, on systems installed earlier, by abyss-desktop's INSTALL.
+ENABLED_SERVICES="dbus polkit NetworkManager lightdm chronyd"
 
 # Silent boot (later loglevel= overrides mklive's built-in loglevel=4)
 ABYSS_BOOT_CMDLINE="quiet loglevel=3 rd.udev.log_level=3 udev.log_level=3 vt.global_cursor_default=0"

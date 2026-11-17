@@ -100,23 +100,47 @@ menu_width() {
         END { w = int((max * 8 + 32) * dpi / 96); print (w > min ? w : min) }'
 }
 
-# Where the popup opens. After a click on the bar the pointer is still on the
-# bar: no position, so xmenu opens under the pointer and keeps itself on the
-# screen. From the keyboard it is pinned under the right end of the bar.
+# Where the popup opens: pinned under the right end of the bar, on the monitor
+# with the pointer (else the primary one), from a click and from the keyboard
+# alike. A fixed spot (-p) also fixes where submenus open (see pad_submenus).
 menu_pos() {  # menu_pos [menu width in px]
-    if has xdotool; then
-        eval "$(xdotool getmouselocation --shell 2>/dev/null)"
-        [ "${Y:-999}" -le "$BAR_H" ] && return
-    fi
-    geo=$(xrandr --listactivemonitors 2>/dev/null | awk 'NR>1 && /\*/ {print $3; exit}')
-    [ -n "$geo" ] || geo=$(xrandr --listactivemonitors 2>/dev/null | awk 'NR==2 {print $3}')
-    # geo looks like 2560/677x1600/423+0+0
-    w=$(echo "$geo" | sed -n 's|^\([0-9]*\)/.*|\1|p')
-    ox=$(echo "$geo" | sed -n 's|.*+\([0-9]*\)+[0-9]*$|\1|p')
-    [ -n "$w" ] || return
-    x=$(( ${ox:-0} + w - ${1:-$MENU_W} - 8 ))
-    [ "$x" -ge "${ox:-0}" ] || x=${ox:-0}
-    printf -- '-p %dx%d' "$x" $(( BAR_H + 2 ))
+    X= Y=
+    has xdotool && eval "$(xdotool getmouselocation --shell 2>/dev/null)"
+    # Monitor lines look like " 0: +*Virtual-1 2560/677x1600/423+0+0  Virtual-1"
+    geo=$(xrandr --listactivemonitors 2>/dev/null | awk -v px="${X:-}" -v py="${Y:-}" '
+        NR > 1 && split($3, g, /[\/x+]/) == 6 {
+            m = g[1] " " g[5] " " g[6]
+            if (px != "" && px >= g[5] && px < g[5] + g[1] && py >= g[6] && py < g[6] + g[3]) here = here ? here : m
+            if ($2 ~ /\*/ && prim == "") prim = m
+            if (first == "") first = m
+        }
+        END { print here ? here : prim ? prim : first }')
+    # shellcheck disable=SC2086
+    set -- "${1:-$MENU_W}" $geo
+    [ $# -eq 4 ] || return
+    x=$(( $3 + $2 - $1 - 8 ))
+    [ "$x" -ge "$3" ] || x=$3
+    printf -- '-p %dx%d' "$x" $(( $4 + BAR_H + 2 ))
+}
+
+# xmenu opens a submenu to the right of its parent when it fits there, else
+# to the left. The menu sits at the right edge, so first-level submenus open
+# to the left; a second-level one then fits on the right only by covering
+# the main menu, which a narrow one (Settings › Sound) did while a wide one
+# (Display) opened to the left. Padding the first label of each second-level
+# submenu with spaces makes it wider than the main menu plus the gap to the
+# screen edge, so every one opens to the left of its parent. The font is
+# monospace: 8 px per character at 96 dpi.
+pad_submenus() {  # pad_submenus MAIN_MENU_WIDTH_PX < tree
+    LC_ALL=C awk -F'\t' -v OFS='\t' -v n=$(( ($1 * 96 + 8 * DPI - 1) / (8 * DPI) + 2 )) '
+        { level = match($0, /[^\t]/) - 1 }
+        level == 2 && prev != 2 {
+            f = 3; if ($f ~ /^IMG:/) f++
+            if (NF == f) $(f + 1) = $f          # the label is the output too
+            s = $f; gsub(/[\200-\277]/, "", s)  # count characters, not UTF-8 bytes
+            for (k = length(s); k < n; k++) $f = $f " "
+        }
+        { prev = level; print }'
 }
 
 header() {
@@ -267,8 +291,9 @@ choose_dmenu() {
 choose() {
     if has xmenu; then
         tree=$(menu_tree)
+        width=$(printf '%s\n' "$tree" | menu_width)
         # shellcheck disable=SC2046
-        printf '%s\n' "$tree" | xmenu $(menu_pos "$(printf '%s\n' "$tree" | menu_width)")
+        printf '%s\n' "$tree" | pad_submenus "$width" | xmenu $(menu_pos "$width")
     else
         choose_dmenu
     fi

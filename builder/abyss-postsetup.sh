@@ -71,6 +71,20 @@ fi
 # the old image-only copy must not shadow them.
 rm -f "$ROOTFS/etc/profile.d/99-void-dev-cli.sh"
 
+# /usr/local/bin: the overlay holds full copies of the Abyss commands (the
+# tests use them), but abyss-desktop ships them in /usr/bin and an image
+# copy here would shadow every later package update. Give the image what an
+# updated system has: abyss-desktop's own helper (the one its INSTALL runs)
+# turns each /usr/local/bin/<cmd> into the wrapper that runs /usr/bin/<cmd>.
+wrappers=usr/libexec/abyss-desktop/local-bin-wrappers
+if [ -f "$ROOTFS/$wrappers" ]; then
+    ( cd "$ROOTFS" && sh "$wrappers" --no-backup ) || {
+        echo "[abyss] could not write the /usr/local/bin wrappers" >&2; exit 1; }
+    echo "[abyss] /usr/local/bin: abyss-desktop wrappers for $(cd "$ROOTFS" && sh "$wrappers" --list | wc -l) commands"
+else
+    echo "[abyss] WARNING: $wrappers missing (abyss-desktop older than 1.0_31); /usr/local/bin keeps the overlay copies" >&2
+fi
+
 # Release version: $ABYSS_VERSION, else the repository's VERSION file, else the date
 VERSION_FILE="$(dirname "$0")/../VERSION"
 if [ -z "${ABYSS_VERSION:-}" ] && [ -r "$VERSION_FILE" ]; then
