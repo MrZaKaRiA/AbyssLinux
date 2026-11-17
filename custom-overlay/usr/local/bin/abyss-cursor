@@ -39,8 +39,8 @@ dpi=$(printf '%s' "$dpi" | sed 's/^0*//')
 [ -n "$dpi" ] || dpi=96
 [ "$dpi" -ge 72 ] && [ "$dpi" -le 384 ] || dpi=96
 
-# 1. Follow the text scale: 32 px at 96 DPI.
-size=$(( (32 * dpi + 48) / 96 ))
+# 1. Follow the text scale: 24 px at 96 DPI.
+size=$(( (24 * dpi + 48) / 96 ))
 
 # 2. Follow the screen, so a 4K panel at 100% text still gets a usable pointer.
 #    Physical size is used when the display reports a believable one (not a
@@ -51,15 +51,15 @@ if [ -z "$apple_vm" ] && [ "$mm_w" -ge 100 ] && [ "$mm_h" -gt 0 ] && [ "$width" 
     skew=$(( width * mm_h - height * mm_w )); [ "$skew" -lt 0 ] && skew=$(( -skew ))
     real_dpi=$(( width * 254 / (mm_w * 10) ))
     if [ $(( skew * 10 )) -le $(( width * mm_h )) ] && [ "$real_dpi" -ge 60 ] && [ "$real_dpi" -le 400 ]; then
-        screen=$(( real_dpi / 3 ))
+        screen=$(( real_dpi / 4 ))
     fi
 fi
 if [ "$screen" -eq 0 ]; then
     short=$height; [ "$width" -gt 0 ] && [ "$width" -lt "$height" ] && short=$width
-    if [ "$short" -ge 2500 ]; then screen=96
-    elif [ "$short" -ge 1700 ]; then screen=64
-    elif [ "$short" -ge 1300 ]; then screen=48
-    else screen=32; fi
+    if [ "$short" -ge 2500 ]; then screen=64
+    elif [ "$short" -ge 1700 ]; then screen=48
+    elif [ "$short" -ge 1300 ]; then screen=32
+    else screen=24; fi
 fi
 [ "$screen" -gt "$size" ] && size=$screen
 # Cursor themes ship a few sizes; ask for one of them.

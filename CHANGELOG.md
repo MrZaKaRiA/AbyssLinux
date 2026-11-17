@@ -3,7 +3,7 @@
 ## v27.3.3 (2026-11-17)
 
 * Scale the mouse pointer with the desktop text size, including at login, while respecting a custom cursor theme.
-* Size the mouse pointer for the screen as well as the text size, so a high-resolution display no longer gets a tiny pointer. **Settings › Display › Pointer size** sets a fixed size; the pointer is re-fitted after every resolution change.
+* Size the mouse pointer for the screen as well as the text size, so a high-resolution display no longer gets a tiny pointer, without growing oversized: 24 px on a 1080p screen, 32 px at 1440p, 48 px on 4K or at 200% text. **Settings › Display › Pointer size** sets a fixed size; the pointer is re-fitted after every resolution change.
 * Add **Settings › Display › Refresh rate (keeps resolution)**: pick a refresh rate on its own. The resolution stays automatic, the rate is remembered per display and re-applied after display detection, and a 20-second keep/revert prompt protects against a rate the panel cannot show.
 * "Detect displays again" now keeps a saved refresh rate instead of resetting it.
 * The Abyss menu opens on the quick actions and five categories that fit on one screen. A category opens its own list; typing at the first screen still searches every entry.

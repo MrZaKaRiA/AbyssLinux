@@ -50,7 +50,7 @@ jobs:
         run: |
           repo=https://mrzakaria.github.io/AbyssLinuxPMR/current
           for attempt in $(seq 1 90); do
-            if curl -fsI "$repo/abyss-desktop-1.0_23.${{ matrix.arch }}.xbps" >/dev/null && \
+            if curl -fsI "$repo/abyss-desktop-1.0_24.${{ matrix.arch }}.xbps" >/dev/null && \
                curl -fsI "$repo/abyss-slock-1.7_2.${{ matrix.arch }}.xbps" >/dev/null && \
                curl -fsI "$repo/abyss-st-0.9.3_2.${{ matrix.arch }}.xbps" >/dev/null && \
                curl -fsI "$repo/abyss-dwm-6.8_9.${{ matrix.arch }}.xbps" >/dev/null && \
