@@ -21,7 +21,7 @@
 
 - [The story](#the-story)
 - [Why Void Linux and suckless fit together](#why-void-linux-and-suckless-fit-together)
-- [Download v27.3.2](#download-v2732)
+- [Download v27.3.3](#download-v2733)
 - [Install](#install)
 - [The desktop](#the-desktop)
 - [Keyboard and mouse](#keyboard-and-mouse)
@@ -75,19 +75,19 @@ Void already packages the suckless tools. Its `xbps-src` system makes it easy to
 
 ---
 
-## Download v27.3.2
+## Download v27.3.3
 
 <p align="center">
   <a href="https://github.com/MrZaKaRiA/AbyssLinux/releases"><img alt="Total downloads" src="https://img.shields.io/github/downloads/MrZaKaRiA/AbyssLinux/total?style=for-the-badge&label=total%20downloads&color=a855f7&logo=linux&logoColor=white"></a>
-  <a href="https://github.com/MrZaKaRiA/AbyssLinux/releases/tag/v27.3.2"><img alt="v27.3.2 downloads" src="https://img.shields.io/github/downloads/MrZaKaRiA/AbyssLinux/v27.3.2/total?style=for-the-badge&label=v27.3.2%20downloads&color=7c3aed"></a>
+  <a href="https://github.com/MrZaKaRiA/AbyssLinux/releases/tag/v27.3.3"><img alt="v27.3.3 downloads" src="https://img.shields.io/github/downloads/MrZaKaRiA/AbyssLinux/v27.3.3/total?style=for-the-badge&label=v27.3.3%20downloads&color=7c3aed"></a>
 </p>
 
 | File | Architecture | For | Size | SHA-256 |
 |---|---|---|---|---|
-| [`abyss-linux-27.3.2-aarch64.iso`](https://github.com/MrZaKaRiA/AbyssLinux/releases/download/v27.3.2/abyss-linux-27.3.2-aarch64.iso) | ARM64 (aarch64), UEFI | Apple Silicon Macs (Apple Virtualization, UTM, Parallels, QEMU), ARM64 servers and boards with UEFI | 1.38 GiB | `26487460bc9a68b448f5ccaade38479803304767621c27f4edf89e8e716fbdb5` |
-| [`abyss-linux-27.3.2-x86_64.iso`](https://github.com/MrZaKaRiA/AbyssLinux/releases/download/v27.3.2/abyss-linux-27.3.2-x86_64.iso) | x86-64, UEFI and BIOS | PCs, laptops, VirtualBox, VMware, QEMU/KVM, Hyper-V | 1.39 GiB | `2c3960239a01aae39279472ad764ce0fd88f73b43070d7e43568c6033798ef25` |
+| [`abyss-linux-27.3.3-aarch64.iso`](https://github.com/MrZaKaRiA/AbyssLinux/releases/download/v27.3.3/abyss-linux-27.3.3-aarch64.iso) | ARM64 (aarch64), UEFI | Apple Silicon Macs (Apple Virtualization, UTM, Parallels, QEMU), ARM64 servers and boards with UEFI | 1.38 GiB | `4d60fa3fd9fe1873dbac90d039c4b1295cc0f2c8b3389463957abe17b232b503` |
+| [`abyss-linux-27.3.3-x86_64.iso`](https://github.com/MrZaKaRiA/AbyssLinux/releases/download/v27.3.3/abyss-linux-27.3.3-x86_64.iso) | x86-64, UEFI and BIOS | PCs, laptops, VirtualBox, VMware, QEMU/KVM, Hyper-V | 1.39 GiB | `18fb1a8df032c42f884a908d98d853a79f9cdec97e595cbb27064a56cb6d72c0` |
 
-[`SHA256SUMS`](https://github.com/MrZaKaRiA/AbyssLinux/releases/download/v27.3.2/SHA256SUMS) · [what's new in 27.3.2](https://github.com/MrZaKaRiA/AbyssLinux/releases/tag/v27.3.2) · [older releases](https://github.com/MrZaKaRiA/AbyssLinux/releases)
+[`SHA256SUMS`](https://github.com/MrZaKaRiA/AbyssLinux/releases/download/v27.3.3/SHA256SUMS) · [what's new in 27.3.3](https://github.com/MrZaKaRiA/AbyssLinux/releases/tag/v27.3.3) · [older releases](https://github.com/MrZaKaRiA/AbyssLinux/releases)
 
 Verify a download:
 
@@ -128,7 +128,7 @@ The installer is Void's `void-installer` with Abyss changes: one-step automatic 
 
 * **dwm**, patched with systray, status2d, vanitygaps, scratchpad, attachaside and autostart, and themed in Abyss purple `#a855f7` on `#0d0b18`.
 * **A small status bar** (`dwm-statusbar`): network type and transfer rate, battery when present, volume when audio is installed, CPU, RAM, clock, and the Menu button.
-* **A searchable dmenu control center.** Click the bar or press `Super+Esc` to open settings, the package browser, first-run setup, display controls, and power actions.
+* **The Abyss menu.** Click **Menu** in the bar or press `Super+Esc` for a popup menu with apps, media, software, settings (display, wallpaper, sound, keyboard) and **Session** (lock, suspend, restart, shut down). **Search menu…** lets you type to find any entry.
 * **On-demand software.** The ISO contains no general-purpose apps. Install Firefox, Chrome, QEMU/virt-manager, Docker, VLC, PipeWire, VS Code, ArtCraft Launcher, Ollama, Claude Code, OpenCode, Cursor, or browse Void packages from the software window.
 * **First-run setup.** Choose keyboard layouts, enable optional Void repositories, and start optional runit services only when needed.
 * **HiDPI and displays.** Abyss sets a reasonable Xft scale from the largest connected display, remembers resolution and refresh-rate choices, and offers a left-to-right multi-monitor layout. Mixed-DPI scaling depends on Xorg's global DPI behavior.
@@ -226,7 +226,7 @@ Some vendor installers are supported only on particular distributions. The insta
 
 | File | Purpose |
 |---|---|
-| `/usr/local/bin/abyss-control-center` | Searchable dmenu control center and settings |
+| `/usr/local/bin/abyss-control-center` | Abyss popup menu (xmenu) with a searchable list, and settings |
 | `/usr/local/bin/abyss-software` | Online Void package browser and current vendor installers |
 | `/usr/local/bin/abyss-setup` | First-run keyboard, repositories, services, display settings |
 | `/usr/local/bin/abyss-display` | RandR mode, refresh, multi-monitor and OLED blanking controls |
