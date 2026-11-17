@@ -12,7 +12,7 @@ mkdir -p "$work/root"
 xorriso -osirrox on -indev "$iso" -extract /LiveOS/squashfs.img "$work/squashfs.img"
 unsquashfs -no-progress -d "$work/squash" "$work/squashfs.img" LiveOS/rootfs.img
 mount -o loop,ro "$work/squash/LiveOS/rootfs.img" "$work/root"
-for package in abyss-dwm abyss-desktop abyss-st abyss-dmenu nsxiv feh xss-lock xbps; do
+for package in abyss-dwm abyss-desktop abyss-st abyss-dmenu nsxiv feh xss-lock xmenu xdotool xbps; do
     xbps-query -r "$work/root" -p pkgver "$package"
 done
 grep -q 'repository=https://mrzakaria.github.io/AbyssLinuxPMR/current' "$work/root/etc/xbps.d/20-abyss-pmr.conf"
@@ -36,7 +36,7 @@ fi
 version=$(tr -d ' \n' < "$(dirname "$0")/../VERSION")
 grep -Fx "VERSION_ID=\"$version\"" "$work/root/usr/lib/os-release"
 grep -q 'Text size: automatic' "$work/root/usr/local/bin/abyss-control-center"
-xbps-query -r "$work/root" -p pkgver abyss-desktop | grep -Fx 'abyss-desktop-1.0_24'
+xbps-query -r "$work/root" -p pkgver abyss-desktop | grep -Fx 'abyss-desktop-1.0_25'
 xbps-query -r "$work/root" -p pkgver abyss-slock | grep -Fx 'abyss-slock-1.7_2'
 xbps-query -r "$work/root" -p pkgver abyss-st | grep -Fx 'abyss-st-0.9.3_2'
 xbps-query -r "$work/root" -p pkgver abyss-dwm | grep -Fx 'abyss-dwm-6.8_9'

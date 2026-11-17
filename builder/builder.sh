@@ -69,7 +69,7 @@ PKGS_ABYSS="${PKGS_ABYSS} lightdm lightdm-gtk-greeter"
 # Abyss builds of the suckless tools, from the signed Abyss PMR
 # (https://github.com/MrZaKaRiA/AbyssLinuxPMR); they replace Void's st/dwm/dmenu
 ABYSS_PMR="${ABYSS_PMR:-https://mrzakaria.github.io/AbyssLinuxPMR/current}"
-PKGS_SUCKLESS="abyss-dwm abyss-st abyss-dmenu abyss-slock abyss-tabbed abyss-wmname abyss-theme nsxiv feh"
+PKGS_SUCKLESS="abyss-dwm abyss-st abyss-dmenu abyss-slock abyss-tabbed abyss-wmname abyss-theme nsxiv feh xmenu xdotool"
 
 # Silent boot (later loglevel= overrides mklive's built-in loglevel=4)
 ABYSS_BOOT_CMDLINE="quiet loglevel=3 rd.udev.log_level=3 udev.log_level=3 vt.global_cursor_default=0"

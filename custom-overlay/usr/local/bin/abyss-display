@@ -1,6 +1,23 @@
 #!/bin/sh
 # Lightweight RandR display picker. The kernel and graphics driver expose
 # supported outputs, modes, and refresh rates; Abyss stores the chosen profile.
+#
+#   abyss-display                 menu
+#   abyss-display --auto          every output on, left-to-right, best mode
+#   abyss-display --restore       saved profile, --auto for anything not in it
+#   abyss-display --rate [OUT]    refresh-rate picker
+#   abyss-display --apply-rates   re-apply saved refresh rates
+#   abyss-display --full-range [off]   full-range RGB on outputs that have the
+#                                 driver's "Broadcast RGB" switch (Intel)
+#
+# Files in ~/.config/abyss:
+#   monitors.sh     saved layout (written by the menu); always wins
+#   refresh-rates   "OUTPUT RATE" lines chosen in the rate picker; always win
+#   refresh-auto    write "preferred" in it to stay on the display's own
+#                   default rate. Without it an output with no saved rate runs
+#                   at the highest rate it lists for its resolution, because
+#                   high-refresh monitors usually mark 60 Hz as preferred.
+#   full-range      present: --auto/--restore ask for full-range RGB
 
 FONT='JetBrainsMono Nerd Font:size=10'
 NB='#0d0b18' NF='#f3e8ff' SB='#a855f7' SF='#090514'
@@ -11,6 +28,18 @@ profile="$HOME/.config/abyss/monitors.sh"
 # Refresh rate chosen on its own, one "OUTPUT RATE" per line. It is applied on
 # top of whatever resolution is active, so the resolution can stay automatic.
 rates="$HOME/.config/abyss/refresh-rates"
+policy="$HOME/.config/abyss/refresh-auto"
+fullrange="$HOME/.config/abyss/full-range"
+# While a picker is open dwm-statusbar must not re-apply the layout under it.
+picker="${XDG_RUNTIME_DIR:-$HOME/.cache}/abyss-display.pid"
+hold_picker() {
+    [ -n "${ABYSS_DISPLAY_PICKER:-}" ] && return 0
+    ABYSS_DISPLAY_PICKER=$$; export ABYSS_DISPLAY_PICKER
+    mkdir -p "${picker%/*}" 2>/dev/null
+    echo $$ > "$picker" 2>/dev/null
+    trap 'rm -f "$picker"' EXIT
+    trap 'exit 1' HUP INT TERM
+}
 # The pointer is sized for the screen, so re-fit it after every mode change.
 fit_cursor() { has abyss-cursor && abyss-cursor >/dev/null 2>&1; :; }
 
@@ -75,7 +104,7 @@ output_modes() {
             for (i=2; i<=NF; i++) {
                 rate=$i; sub(/[+*].*$/, "", rate)
                 if (rate ~ /^[0-9]+([.][0-9]+)?$/)
-                    printf "%s @ %s Hz%s\n", mode, rate, name == "" ? "" : " — " name
+                    printf "%s @ %s Hz%s\n", mode, rate, (name == "" ? "" : " — " name)
             }
         }
     ' | sort -Vu
@@ -130,6 +159,71 @@ apply_rates() {
     done < "$rates"
 }
 
+auto_highest() {
+    b_pol=
+    [ -r "$policy" ] && read -r b_pol < "$policy"
+    [ "$b_pol" != preferred ]
+}
+
+# Highest of the rates in $2.. when it is really above $1, else nothing.
+higher_rate() {
+    b_from=$1; shift
+    printf '%s\n' "$@" | awk -v c="$b_from" '$1 + 0 > m {m = $1 + 0; s = $1} END {if (m > c + 1) print s}'
+}
+
+# Output $1 has no saved rate: raise it from the preferred rate to the highest
+# one listed for the very same mode (never another resolution, never an
+# interlaced mode, never downwards). The driver has already dropped modes the
+# link cannot carry, and when the switch is refused we go back at once. What
+# cannot be detected is a mode that is accepted but shows nothing (marginal
+# cable, wrong DisplayPort version in the monitor's own menu): nobody is asked
+# to confirm at login. The way out is, from a text console (Ctrl+Alt+F2):
+#   echo preferred > ~/.config/abyss/refresh-auto
+boost_rate() {
+    auto_highest || return 0
+    [ -r "$rates" ] && awk -v o="$1" '$1 == o {f = 1} END {exit !f}' "$rates" && return 0
+    set -- "$1" $(active_mode "$1")
+    [ $# -ge 5 ] || return 0
+    b_out=$1 b_mode=$2 b_cur=$3; shift 4
+    case "$b_mode" in *i) return 0 ;; esac
+    b_top=$(higher_rate "$b_cur" "$@")
+    [ -n "$b_top" ] || return 0
+    xrandr --output "$b_out" --mode "$b_mode" --rate "$b_top" 2>/dev/null ||
+        xrandr --output "$b_out" --mode "$b_mode" --rate "$b_cur" 2>/dev/null
+    :
+}
+
+# The dwm bar and new windows start on the primary output: with a laptop panel
+# and a big external screen that should be the big one.
+set_primary() {
+    p_out=$(xrandr --query 2>/dev/null | awk '
+        $2 == "connected" {
+            n++
+            for (i = 3; i <= NF; i++) if ($i ~ /^[0-9]+x[0-9]+[+-]/) {
+                split($i, a, /[x+-]/)
+                if (a[1] * a[2] > best) { best = a[1] * a[2]; out = $1 }
+            }
+        }
+        END { if (n > 1) print out }')
+    [ -z "$p_out" ] || xrandr --output "$p_out" --primary 2>/dev/null
+    :
+}
+
+# Intel's driver sends limited-range RGB (16-235) for TV timings over HDMI;
+# a monitor that expects full range then shows grey blacks. Only the user can
+# tell a monitor from a TV, so this is applied on request, never guessed.
+range_outputs() {
+    xrandr --prop 2>/dev/null | awk '
+        /^[^[:space:]]/ { out = ($2 == "connected") ? $1 : "" }
+        out != "" && /^[[:space:]]+Broadcast RGB:/ { print out }'
+}
+apply_range() {   # $1=Full|Automatic
+    for r_o in $(range_outputs); do
+        xrandr --output "$r_o" --set 'Broadcast RGB' "$1" 2>/dev/null
+    done
+    :
+}
+
 pick_rate() {   # $1=output; keeps the resolution, changes only the rate
     output=$1
     set -- $(active_mode "$output")
@@ -140,15 +234,18 @@ pick_rate() {   # $1=output; keeps the resolution, changes only the rate
         notify "$output offers only $cur Hz at $mode. Virtual machines and some panels have a single refresh rate."
         return 0
     fi
+    if auto_highest; then auto='Automatic (highest the display offers)'
+    else auto='Automatic (display default)'; fi
     sel=$({
-        echo 'Automatic (display default)'
+        echo "$auto"
         printf '%s\n' "$list" | awk -v c="$cur" -v p="$pref" '{printf "%s Hz%s%s\n", $1, ($1 == c ? "  (current)" : ""), ($1 == p ? "  (display default)" : "")}'
     } | choose -p "$output refresh rate at $mode") || return 0
     case "$sel" in
         '') return 0 ;;
         Automatic*)
             save_rate "$output" ''
-            [ "$pref" = - ] || xrandr --output "$output" --mode "$mode" --rate "$pref"
+            if auto_highest; then boost_rate "$output"
+            elif [ "$pref" != - ]; then xrandr --output "$output" --mode "$mode" --rate "$pref"; fi
             [ -r "$profile" ] && save_profile
             notify "$output refresh rate is automatic again." ;;
         *)
@@ -169,7 +266,16 @@ pick_rate() {   # $1=output; keeps the resolution, changes only the rate
 
 if [ "${1:-}" = --apply-rates ]; then apply_rates; exit 0; fi
 
+if [ "${1:-}" = --full-range ]; then
+    [ -n "$(range_outputs)" ] || { notify 'No output here has a full/limited range switch (only the Intel driver offers one).'; exit 1; }
+    mkdir -p "${fullrange%/*}"
+    if [ "${2:-}" = off ]; then rm -f "$fullrange"; apply_range Automatic; notify 'RGB range is automatic again.'
+    else : > "$fullrange"; apply_range Full; notify 'Full-range RGB is on.'; fi
+    exit 0
+fi
+
 if [ "${1:-}" = --rate ]; then
+    hold_picker
     output=${2:-}
     if [ -z "$output" ]; then
         if [ "$(printf '%s\n' "$outputs" | wc -l)" -eq 1 ]; then output=$outputs
@@ -187,7 +293,10 @@ if [ "${1:-}" = --auto ]; then
         else xrandr --output "$output" --auto || exit 1; fi
         prev=$output
     done
+    for output in $outputs; do boost_rate "$output"; done
     apply_rates
+    set_primary
+    [ -e "$fullrange" ] && apply_range Full
     fit_cursor
     exit 0
 fi
@@ -196,16 +305,20 @@ if [ "${1:-}" = --restore ]; then
     if [ -r "$profile" ]; then
         /bin/sh "$profile" 2>/dev/null
         for output in $outputs; do
-            grep -q -- "--output $output " "$profile" || xrandr --output "$output" --auto 2>/dev/null
+            grep -q -- "--output $output " "$profile" && continue
+            xrandr --output "$output" --auto 2>/dev/null && boost_rate "$output"
         done
     else
         exec "$0" --auto
     fi
     apply_rates
+    set_primary
+    [ -e "$fullrange" ] && apply_range Full
     fit_cursor
     exit 0
 fi
 
+hold_picker
 while :; do
     action=$(printf '%s\n' 'Arrange connected displays left-to-right' 'Choose refresh rate only (keeps the resolution)' 'Choose resolution and refresh rate together' 'Turn an output off' 'Reset to automatic' 'Back' | choose -p 'Display setup') || exit 0
     case "$action" in

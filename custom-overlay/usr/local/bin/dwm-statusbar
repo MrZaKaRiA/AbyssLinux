@@ -153,6 +153,49 @@ ssd() {  # used/size, red from 90 %
     pair "$used" "$size"
 }
 
+# ---- displays ----------------------------------------------------------------
+# Nothing else notices a monitor being plugged in, or a VM window being
+# resized (the virtual display then advertises a new preferred size). Each
+# tick reads the connection state and the first (preferred) mode of every
+# connector from sysfs with shell builtins only, so it costs no process.
+display_state() {  # sets DISPLAY_NOW
+    local f line
+    DISPLAY_NOW=
+    for f in /sys/class/drm/card*-*/status /sys/class/drm/card*-*/modes; do
+        [[ -r "$f" ]] || continue
+        line=
+        read -r line < "$f" 2>/dev/null || true
+        DISPLAY_NOW+="${f#/sys/class/drm/}=${line};"
+    done
+}
+
+picker_open() {  # abyss-display menu or rate picker on screen
+    local pid=
+    [[ -r "$DISPLAY_PICKER" ]] || return 1
+    read -r pid < "$DISPLAY_PICKER" 2>/dev/null || return 1
+    [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null
+}
+
+# A change must hold for one more tick before it is acted on (a window being
+# dragged changes size continuously). While the restore runs, and on the tick
+# after it, whatever sysfs shows becomes the new baseline, so a restore can
+# never trigger the next one.
+watch_displays() {
+    display_state
+    if [[ -n "$DISPLAY_JOB" ]]; then
+        kill -0 "$DISPLAY_JOB" 2>/dev/null && return
+        wait "$DISPLAY_JOB" 2>/dev/null
+        DISPLAY_JOB=; DISPLAY_SEEN=$DISPLAY_NOW; DISPLAY_PENDING=
+        return
+    fi
+    if [[ "$DISPLAY_NOW" == "$DISPLAY_SEEN" ]]; then DISPLAY_PENDING=; return; fi
+    if [[ "$DISPLAY_NOW" != "$DISPLAY_PENDING" ]]; then DISPLAY_PENDING=$DISPLAY_NOW; return; fi
+    picker_open && return
+    DISPLAY_SEEN=$DISPLAY_NOW; DISPLAY_PENDING=
+    abyss-display --restore >/dev/null 2>&1 &
+    DISPLAY_JOB=$!
+}
+
 # ---- main loop ---------------------------------------------------------------
 TEMP_FILE=$(find_cpu_temp)
 read -r PREV_TOTAL PREV_IDLE <<< "$(cpu_stat)"
@@ -161,6 +204,9 @@ PREV_T=${EPOCHREALTIME/[.,]/}       # microseconds
 sleep 1
 BAT=
 BAT_TICK=0
+DISPLAY_PICKER="${XDG_RUNTIME_DIR:-$HOME/.cache}/abyss-display.pid"
+DISPLAY_JOB=; DISPLAY_PENDING=
+display_state; DISPLAY_SEEN=$DISPLAY_NOW
 
 while true; do
     NOW_T=${EPOCHREALTIME/[.,]/}
@@ -192,5 +238,6 @@ while true; do
     STATUS="${NET}${SEP}${BAT:+$BAT${SEP}}${VOL:+$VOL${SEP}}${LABEL} ${VALUE}${CPU_PCT}%$(cpu_temp)${SEP}${LABEL}󰍛 ${VALUE}$(ram)${SEP}${VALUE}$(date '+%a %d %H:%M') ${MENU}"
 
     xsetroot -name "$STATUS" 2>/dev/null || true
+    watch_displays
     sleep "$INTERVAL"
 done

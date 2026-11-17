@@ -2,20 +2,23 @@
 # ==============================================================================
 # abyss-control-center - the single top-right menu of Abyss Linux
 #
-# Opened by dwm when you click the status bar or press Super+Escape. The
-# dmenu-first tree keeps the installed desktop small. The first screen is the
-# quick actions and the categories; a category opens its own list, and typing
-# at the first screen still searches every entry of every category:
+# Opened by dwm when you click "Menu" on the status bar or press Super+Escape.
+# A popup (xmenu) with nested submenus and icons, under the right end of the
+# bar:
 #
 #   user@host · uptime                       (header: opens System info)
 #   Terminal · Files · Web browser           (quick launch)
 #   Applications  by category, real icons + what each app is, search, run
-#   Settings      Network · Sound · Display · Keyboard · Appearance
-#   System        monitor, info, update, disks, services, power diagnostics
+#   Media         images, screenshots, screen recording, play a copied URL
+#   Software      install software, search Void packages, update
+#   Settings      Network · Sound · Display · Keyboard
+#   System        monitor, info, disks, services, power diagnostics
+#   Search menu…  the same entries as a dmenu list: type to find any of them
 #   Session       lock, suspend, hibernate, log out, restart, shut down
 #
-# Uses the included dmenu and Abyss shell scripts; optional apps appear after
-# the user installs them.
+# Without xmenu the dmenu list is the menu: quick actions and categories
+# first, a category opens its own list, typing searches every entry.
+# Optional apps appear after the user installs them.
 #
 #   abyss-control-center            open the menu
 #   abyss-control-center <action>   run one action directly
@@ -88,8 +91,19 @@ power() {
     setsid -f sh -c "abyss-power $1 || notify-send -u critical -a Abyss 'Could not $1' 'Run: abyss-power diagnose'" >/dev/null 2>&1
 }
 
-# Top-right anchor for optional xmenu installations; dmenu does not use this.
-menu_pos() {
+# Width in px of the widest top-level row read from stdin (never less than
+# xmenu.width). xmenu does not keep a menu placed with -p on the screen, so the
+# anchor has to leave room for a long "user @ host · up ..." header.
+menu_width() {
+    awk -F'\t' -v dpi="$DPI" -v min="$MENU_W" '
+        /^[^\t]/ { n = length($1); if (n > max) max = n }
+        END { w = int((max * 8 + 32) * dpi / 96); print (w > min ? w : min) }'
+}
+
+# Where the popup opens. After a click on the bar the pointer is still on the
+# bar: no position, so xmenu opens under the pointer and keeps itself on the
+# screen. From the keyboard it is pinned under the right end of the bar.
+menu_pos() {  # menu_pos [menu width in px]
     if has xdotool; then
         eval "$(xdotool getmouselocation --shell 2>/dev/null)"
         [ "${Y:-999}" -le "$BAR_H" ] && return
@@ -100,7 +114,9 @@ menu_pos() {
     w=$(echo "$geo" | sed -n 's|^\([0-9]*\)/.*|\1|p')
     ox=$(echo "$geo" | sed -n 's|.*+\([0-9]*\)+[0-9]*$|\1|p')
     [ -n "$w" ] || return
-    printf -- '-p %dx%d' $(( ${ox:-0} + w - MENU_W - 8 )) $(( BAR_H + 2 ))
+    x=$(( ${ox:-0} + w - ${1:-$MENU_W} - 8 ))
+    [ "$x" -ge "${ox:-0}" ] || x=${ox:-0}
+    printf -- '-p %dx%d' "$x" $(( BAR_H + 2 ))
 }
 
 header() {
@@ -122,24 +138,24 @@ menu_tree_raw() {
     cat <<'EOF'
   Terminal	term
   Files	files
-  Images	images
   Web browser	browser
-  Take screenshot	screenshot
-  Select screenshot area	screenshot-area
-  Play clipboard URL	play-clipboard
-  Record screen	record-screen
+
 󰀻  Applications
 EOF
     has abyss-apps && abyss-apps --xmenu 1
     cat <<'EOF'
 	  Search all apps…	apps
 	  Run a command…	run
-
+  Media
+	  Images	images
+	  Take screenshot	screenshot
+	  Select screenshot area	screenshot-area
+	  Record screen	record-screen
+	  Play clipboard URL	play-clipboard
 󰏖  Software
 	󰏖  Install software	software
 	  Search Void packages	package-search
 	󰚰  Update system	update
-
   Settings
 	󰖩  Network
 		󰖩  Connect to Wi-Fi / network	net-tui
@@ -175,6 +191,8 @@ EOF
 	  Running services	services
 	  Power diagnostics	power-diag
 
+  Search menu…	search
+
   Session
 	  Lock screen	lock
 	󰤄  Suspend	suspend
@@ -201,6 +219,7 @@ menu_flat() {
                 if (label == "") label = f[i]; else action = f[i]
             }
             if (label == "") next
+            if (action == "search") next                        # this list is the search
             if (label ~ /^[^ -~]/) sub(/^[^ ]* +/, "", label)   # drop a leading glyph
             path[depth] = label
             if (action == "") {                                 # submenu header
@@ -213,35 +232,41 @@ menu_flat() {
         }'
 }
 
+# The searchable dmenu list: "Search menu…" in the popup, and the whole menu
+# when xmenu is not installed.
+choose_dmenu() {
+    has dmenu || { notify "Abyss menu" "dmenu is not installed"; return 0; }
+    flat=$(menu_flat); scope=
+    while :; do
+        if [ -z "$scope" ]; then
+            # Quick actions and categories first (they fit on one screen),
+            # then every entry, so typing finds anything.
+            list=$(printf '%s\n' "$flat" | awk -F'\t' '
+                $1 ~ / › ./ { deep[++n] = $0; next }
+                { print }
+                END { for (i = 1; i <= n; i++) print deep[i] }')
+        else
+            list=$(printf '%s\n' "$flat" | awk -F'\t' -v p="$scope › " '
+                index($1, p) == 1 { print substr($1, length(p) + 1) "\t" $2 }
+                END { print "‹ Back\tmenu:" }')
+        fi
+        sel=$(printf '%s\n' "$list" | cut -f1 | dmenu_theme -p "${scope:-Abyss}") || return 0
+        [ -n "$sel" ] || return 0
+        action=$(printf '%s\n' "$list" | awk -F'\t' -v s="$sel" '$1 == s {print $2; exit}')
+        case "$action" in
+            menu:*) scope=${action#menu:} ;;
+            *) printf '%s\n' "$action"; return 0 ;;
+        esac
+    done
+}
+
 choose() {
     if has xmenu; then
+        tree=$(menu_tree)
         # shellcheck disable=SC2046
-        menu_tree | xmenu $(menu_pos)
-    elif has dmenu; then
-        flat=$(menu_flat); scope=
-        while :; do
-            if [ -z "$scope" ]; then
-                # Quick actions and categories first (they fit on one screen),
-                # then every entry, so typing finds anything.
-                list=$(printf '%s\n' "$flat" | awk -F'\t' '
-                    $1 ~ / › ./ { deep[++n] = $0; next }
-                    { print }
-                    END { for (i = 1; i <= n; i++) print deep[i] }')
-            else
-                list=$(printf '%s\n' "$flat" | awk -F'\t' -v p="$scope › " '
-                    index($1, p) == 1 { print substr($1, length(p) + 1) "\t" $2 }
-                    END { print "‹ Back\tmenu:" }')
-            fi
-            sel=$(printf '%s\n' "$list" | cut -f1 | dmenu_theme -p "${scope:-Abyss}") || return 0
-            [ -n "$sel" ] || return 0
-            action=$(printf '%s\n' "$list" | awk -F'\t' -v s="$sel" '$1 == s {print $2; exit}')
-            case "$action" in
-                menu:*) scope=${action#menu:} ;;
-                *) printf '%s\n' "$action"; return 0 ;;
-            esac
-        done
+        printf '%s\n' "$tree" | xmenu $(menu_pos "$(printf '%s\n' "$tree" | menu_width)")
     else
-        notify "Abyss menu" "dmenu is not installed"
+        choose_dmenu
     fi
 }
 
@@ -350,6 +375,7 @@ act() {
                       else notify "Virtual Machine Manager is not installed" "Open Software → Install software to add QEMU and virt-manager."; fi ;;
         apps)         setsid -f abyss-launcher drun ;;
         run)          setsid -f abyss-launcher run ;;
+        search)       act "$(choose_dmenu)" ;;
         exec:*)       setsid -f sh -c "${1#exec:}" >/dev/null 2>&1 ;;
         term-exec:*)  term "${1#term-exec:}" sh -c "${1#term-exec:}" ;;
 
@@ -411,7 +437,7 @@ act() {
 
 check() {
     missing=""
-    for c in dmenu st dwm slock xrandr setxkbmap xbps-query xbps-install abyss-power abyss-software abyss-setup abyss-display; do
+    for c in xmenu dmenu st dwm slock xrandr setxkbmap xbps-query xbps-install abyss-power abyss-software abyss-setup abyss-display; do
         has "$c" || missing="$missing $c"
     done
     if [ -n "$missing" ]; then echo "missing:$missing"; return 1; fi

@@ -2,11 +2,14 @@
 
 ## v27.3.3 (2026-11-17)
 
+* Displays: outputs without a saved choice now run at the highest refresh rate their resolution offers (opt out with `echo preferred > ~/.config/abyss/refresh-auto`). The layout is re-applied automatically when a monitor is plugged in or a virtual machine window is resized, and the largest screen becomes primary. `abyss-display --full-range` fixes washed-out blacks over HDMI on Intel graphics.
+* Fixed: `update`, `upgrade`, `install`, `remove`, `cleanup` and the `u`/`i`/`r` aliases failed in a root shell because they always went through doas, which had no rule for root. Root now runs them directly, and `/etc/doas.conf` gains `permit nopass root`; existing installs get that rule added once by the abyss-desktop update.
+
 * Scale the mouse pointer with the desktop text size, including at login, while respecting a custom cursor theme.
 * Size the mouse pointer for the screen as well as the text size, so a high-resolution display no longer gets a tiny pointer, without growing oversized: 24 px on a 1080p screen, 32 px at 1440p, 48 px on 4K or at 200% text. **Settings › Display › Pointer size** sets a fixed size; the pointer is re-fitted after every resolution change.
 * Add **Settings › Display › Refresh rate (keeps resolution)**: pick a refresh rate on its own. The resolution stays automatic, the rate is remembered per display and re-applied after display detection, and a 20-second keep/revert prompt protects against a rate the panel cannot show.
 * "Detect displays again" now keeps a saved refresh rate instead of resetting it.
-* The Abyss menu opens on the quick actions and five categories that fit on one screen. A category opens its own list; typing at the first screen still searches every entry.
+* Bring back the Abyss popup menu: since 27.2 the image had no `xmenu`, so **Menu** (or `Super+Esc`) opened a long list instead. `xmenu` and `xdotool` are installed again (dependencies of `abyss-desktop`, so a system update restores the popup). It opens under the Menu button with submenus and icons: Terminal, Files and Web browser, then Applications, Media (images, screenshots, screen recording, play a copied URL), Software, Settings and System, and **Session** as the last row for lock, suspend, restart and shut down. **Search menu…** opens the same entries as a list where typing finds any of them.
 * Installer: check free space before copying, stop with a clear message when the copy or the initramfs build fails, and show the last log lines when GRUB cannot be installed (a full host disk under a virtual machine is the usual cause). The copy, GRUB and initramfs steps are logged to `/tmp/abyss-install.log`.
 * Boot: GRUB waits 1 second instead of 2, and the `virtio_rng` driver is in the initramfs so virtual machines no longer stall about 4 seconds waiting for entropy.
 * ISO audit: fail the build when `/var/lib/lightdm`, `/etc/doas.conf` or the sudo power rule has the wrong owner or mode.

@@ -16,8 +16,12 @@ else
     export EDITOR=vi VISUAL=vi
 fi
 
+# Run a command as root: directly when the shell already is root (doas only
+# knows the wheel rules, and root needs no privilege tool), otherwise through
+# doas, or sudo when doas is absent.
 abyss_priv() {
-    if command -v doas >/dev/null 2>&1; then doas "$@"
+    if [ "$(id -u)" -eq 0 ]; then "$@"
+    elif command -v doas >/dev/null 2>&1; then doas "$@"
     else sudo "$@"; fi
 }
 

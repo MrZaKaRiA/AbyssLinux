@@ -31,7 +31,7 @@ PKGS_BASE_X11="base-system curl ca-certificates grub grub-arm64-efi grub-x86_64-
 PKGS_INSTALLER="dialog xtools-minimal xmirror"
 # Abyss builds of the suckless tools from the signed Abyss PMR
 ABYSS_PMR="${ABYSS_PMR:-https://mrzakaria.github.io/AbyssLinuxPMR/current}"
-PKGS_SUCKLESS="abyss-dwm abyss-st abyss-dmenu abyss-slock abyss-tabbed abyss-wmname abyss-theme nsxiv feh"
+PKGS_SUCKLESS="abyss-dwm abyss-st abyss-dmenu abyss-slock abyss-tabbed abyss-wmname abyss-theme nsxiv feh xmenu xdotool"
 
 ALL_PACKAGES="${PKGS_BASE_X11} ${PKGS_INSTALLER} ${PKGS_SUCKLESS}"
 ENABLED_SERVICES="dbus elogind polkit NetworkManager lightdm"

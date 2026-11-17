@@ -34,16 +34,19 @@ bind -m vi-insert '"\C-l": clear-screen'
 bind -m vi-insert '"\C-a": beginning-of-line'
 bind -m vi-insert '"\C-e": end-of-line'
 
-# XBPS shortcuts, privileged through doas (falls back to sudo if doas is absent)
-if command -v doas >/dev/null 2>&1 && [ -e /etc/doas.conf ]; then
-    __abyss_priv=doas
+# XBPS shortcuts, privileged through doas (falls back to sudo if doas is absent).
+# Root runs them directly: this file is also copied to /root by the installer.
+if [ "$(id -u)" -eq 0 ]; then
+    __abyss_priv=
+elif command -v doas >/dev/null 2>&1 && [ -e /etc/doas.conf ]; then
+    __abyss_priv='doas '
 else
-    __abyss_priv=sudo
+    __abyss_priv='sudo '
 fi
-alias u="$__abyss_priv xbps-install -Su"     # update the whole system
-alias i="$__abyss_priv xbps-install -S"      # install: i <pkg>...
+alias u="${__abyss_priv}xbps-install -Su"    # update the whole system
+alias i="${__abyss_priv}xbps-install -S"     # install: i <pkg>...
 alias q='xbps-query -Rs'                     # query/search: q <term>
-alias r="$__abyss_priv xbps-remove -R"       # remove with orphaned deps: r <pkg>...
+alias r="${__abyss_priv}xbps-remove -R"      # remove with orphaned deps: r <pkg>...
 
 # Power: go through abyss-power, which falls back to a clean manual shutdown
 # if runit's normal path fails (see `abyss-power diagnose`)
