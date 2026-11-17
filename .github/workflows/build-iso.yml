@@ -25,6 +25,18 @@ jobs:
       - uses: actions/checkout@v4
       - name: Run desktop tests
         run: python3 -m unittest discover -s tests -v
+  void-package-names:
+    name: Installer packages exist in live Void
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check every offered package against the live x86_64 and aarch64 repodata
+        run: |
+          d=$RUNNER_TEMP/repodata; base=https://repo-default.voidlinux.org/current; mkdir -p "$d"
+          for f in x86_64-repodata nonfree/x86_64-repodata aarch64/aarch64-repodata aarch64/nonfree/aarch64-repodata; do
+            curl -fsSL --retry 3 -o "$d/$(echo "${f#aarch64/}" | tr / -)" "$base/$f"
+          done
+          ABYSS_VOID_REPODATA="$d" python3 -m unittest -v tests.test_software_packages.PackageNamesTest
   build:
     needs: desktop-tests
     name: Build ${{ matrix.arch }} ISO
@@ -50,7 +62,7 @@ jobs:
         run: |
           repo=https://mrzakaria.github.io/AbyssLinuxPMR/current
           for attempt in $(seq 1 90); do
-            if curl -fsI "$repo/abyss-desktop-1.0_28.${{ matrix.arch }}.xbps" >/dev/null && \
+            if curl -fsI "$repo/abyss-desktop-1.0_29.${{ matrix.arch }}.xbps" >/dev/null && \
                curl -fsI "$repo/abyss-slock-1.7_2.${{ matrix.arch }}.xbps" >/dev/null && \
                curl -fsI "$repo/abyss-st-0.9.3_2.${{ matrix.arch }}.xbps" >/dev/null && \
                curl -fsI "$repo/abyss-dwm-6.8_9.${{ matrix.arch }}.xbps" >/dev/null && \

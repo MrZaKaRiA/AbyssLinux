@@ -1,0 +1,34 @@
+# Package names referenced by Abyss scripts that exist in Void aarch64 (current + nonfree),
+# taken from the live repodata. Regenerate when the scripts reference new packages.
+bluez
+bridge-utils
+brightnessctl
+chromium
+docker
+docker-buildx
+docker-compose
+ffmpeg
+firefox
+fzf
+gvfs
+lf
+libvirt
+maim
+mpv
+pavucontrol
+pipewire
+qemu
+ripgrep
+texlive
+Thunar
+tmux
+udisks2
+vim
+virt-manager
+vlc
+void-repo-nonfree
+wireplumber
+xclip
+yt-dlp
+zathura
+zathura-pdf-mupdf

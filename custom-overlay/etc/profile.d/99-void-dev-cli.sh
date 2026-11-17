@@ -26,12 +26,46 @@ abyss_priv() {
 }
 
 # 2. Natural XBPS Package Management Functions
+# Wait politely while another xbps command holds the package database.
+__abyss_xbps_wait() {
+    __abyss_xbps_busy || return 0
+    echo "Another install or update is running; this one will start when it finishes. (Ctrl+C cancels)" >&2
+    while __abyss_xbps_busy; do sleep "${ABYSS_LOCK_POLL:-2}"; done
+}
+__abyss_xbps_busy() {
+    pgrep -x xbps-install >/dev/null 2>&1 || pgrep -x xbps-remove >/dev/null 2>&1
+}
+
+# Update the package lists; retry network errors twice before explaining.
 update() {
-    abyss_priv xbps-install -S
+    local try=1 log rc
+    log=$(mktemp) || return 1
+    __abyss_xbps_wait
+    while :; do
+        # Stream the output (xbps may ask to import a repository key).
+        { abyss_priv xbps-install -S; echo $? >"$log.rc"; } 2>&1 | tee "$log"
+        rc=$(cat "$log.rc" 2>/dev/null || echo 1); rm -f "$log.rc"
+        if [ "$rc" -eq 0 ] && ! grep -q ERROR "$log"; then rm -f "$log"; return 0; fi
+        grep -qiE 'authentication failed|not permitted' "$log" && break
+        [ "$try" -lt 3 ] || break
+        echo "A package server could not be reached; trying again in ${ABYSS_RETRY_PAUSE:-5}s..." >&2
+        sleep "${ABYSS_RETRY_PAUSE:-5}"; try=$((try + 1))
+    done
+    if grep -qiE 'authentication failed|not permitted' "$log"; then
+        echo "Updating the package lists needs your password." >&2
+    elif grep -qiE 'resolv|name or service' "$log"; then
+        echo "The package servers could not be found (DNS). Check your network connection, then run: update" >&2
+    else
+        echo "The package lists could not be updated. Check your network connection, then run: update" >&2
+    fi
+    rm -f "$log"
+    return 1
 }
 
 upgrade() {
-    abyss_priv xbps-install -Su "$@"
+    update || echo "Upgrading with the package lists already on this computer." >&2
+    __abyss_xbps_wait
+    abyss_priv xbps-install -u "$@"
 }
 
 search() {
@@ -76,7 +110,9 @@ install() {
         return $?
     fi
 
-    abyss_priv xbps-install -S "$@"
+    update || echo "Continuing with the package lists already on this computer." >&2
+    __abyss_xbps_wait
+    abyss_priv xbps-install "$@"
 }
 
 # 3. Searchable dmenu package browser

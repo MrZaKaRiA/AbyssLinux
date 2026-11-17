@@ -14,31 +14,213 @@ note() {
     else printf '%s — %s\n' "$1" "${2:-}" | choose -p 'Abyss'; fi
 }
 
-install_packages() {
-    packages=$1
-    if ! printf '%s\n' "$packages" | tr ' ' '\n' | while IFS= read -r pkg; do
-        [ -n "$pkg" ] || continue
-        xbps-query -R "$pkg" >/dev/null 2>&1 || exit 1
-    done; then
-        note 'Package unavailable' "$packages is not in the enabled Void repositories. Run first-run setup to enable optional repositories."
+# This script, by absolute path, so the install terminal can run its helper.
+SELF=$0
+case $SELF in */*) ;; *) SELF=$(command -v "$SELF" 2>/dev/null || printf '%s' "$SELF") ;; esac
+case $SELF in /*) ;; *) SELF="$PWD/$SELF" ;; esac
+BIG_DOWNLOAD=$((500 * 1024 * 1024))   # ask before downloads larger than this
+
+# The Void architecture of this machine (x86_64, aarch64, ...), without -musl.
+machine_arch() {
+    a=$(xbps-uhelper arch 2>/dev/null)
+    [ -n "$a" ] || a=$(uname -m)
+    printf '%s\n' "${a%-musl}"
+}
+
+# Is an entry for ARCHES (empty or "all", or a comma list) offered on ARCH?
+offered_on() {
+    case ${2:-all} in all) return 0 ;; esac
+    case ",$2," in *",$1,"*) return 0 ;; esac
+    return 1
+}
+
+# The packages of a bundle that exist on ARCH. A word may name the
+# architectures it exists on: foo@x86_64 is installed only on x86_64.
+arch_packages() {  # arch_packages ARCH "word..."
+    out=
+    for word in $2; do
+        case $word in *@*) offered_on "$1" "${word#*@}" || continue ;; esac
+        out="$out ${word%%@*}"
+    done
+    printf '%s\n' "${out# }"
+}
+
+valid_names() { case $1 in ''|*[!A-Za-z0-9._+\ -]*) return 1 ;; esac; }
+
+xbps_busy() {
+    pgrep -x xbps-install >/dev/null 2>&1 || pgrep -x xbps-remove >/dev/null 2>&1 ||
+        pgrep -x xbps-reconfigure >/dev/null 2>&1
+}
+
+wait_for_xbps() {
+    xbps_busy || return 0
+    echo 'Another install or update is running; this one will start when it finishes.'
+    echo '(Press Ctrl+C to cancel.)'
+    while xbps_busy; do sleep "${ABYSS_LOCK_POLL:-2}"; done
+    echo 'The other one has finished; continuing.'
+}
+
+explain_sync_failure() {  # explain_sync_failure LOG
+    echo
+    if grep -qiE 'resolv|name or service|name resolution' "$1"; then
+        echo 'The package servers could not be found: this computer cannot look up'
+        echo 'their names (DNS). Check that you are connected to the network, or wait'
+        echo 'a minute if it has only just connected.'
+    elif grep -qiE 'timed out|timeout|refused|unreachable|no route|connect' "$1"; then
+        echo 'The package servers could not be reached. Check your network connection.'
+    else
+        echo 'The package lists could not be updated (see the messages above).'
+    fi
+    echo 'To retry, open Install software again, or run "update" in a terminal.'
+}
+
+# Update the package lists, retrying network failures before giving up.
+# Returns 0 on success, 1 when a repository stayed unreachable, 2 when the
+# privilege tool refused (wrong password).
+sync_repos() {
+    tries=${ABYSS_SYNC_TRIES:-3} n=1
+    log=$(mktemp "${TMPDIR:-/tmp}/abyss-sync.XXXXXX") || return 1
+    while :; do
+        echo "Updating package lists (attempt $n of $tries)..."
+        # Stream the output: xbps may ask to import a repository key.
+        { abyss-priv xbps-install -S; echo $? >"$log.rc"; } 2>&1 | tee "$log"
+        rc=$(cat "$log.rc" 2>/dev/null || echo 1); rm -f "$log.rc"
+        if [ "$rc" -eq 0 ] && ! grep -q 'ERROR' "$log"; then rm -f "$log"; return 0; fi
+        if grep -qiE 'authentication failed|incorrect password|not permitted|doas or sudo' "$log"; then
+            rm -f "$log"; echo; echo 'Installing software needs your password (doas or sudo).'; return 2
+        fi
+        [ "$n" -lt "$tries" ] || break
+        pause=${ABYSS_RETRY_PAUSE:-5}
+        echo "A package server could not be reached; trying again in ${pause}s..."
+        sleep "$pause"
+        n=$((n + 1))
+    done
+    explain_sync_failure "$log"
+    rm -f "$log"
+    return 1
+}
+
+# "DOWNLOAD INSTALLED" bytes for installing the packages, from a dry run with
+# the package lists already on disk (no root needed). Fails if xbps cannot.
+dry_run_size() {
+    out=$(xbps-install -n "$@" 2>/dev/null) || return 1
+    printf '%s\n' "$out" | awk '$2 ~ /^(install|update|reinstall|downgrade)$/ { i += $5; d += $6 }
+        END { printf "%.0f %.0f\n", d, i }'
+}
+
+human() {
+    awk -v b="$1" 'BEGIN { if (b >= 1073741824) printf "%.1f GB", b / 1073741824;
+        else if (b >= 1048576) printf "%.0f MB", b / 1048576; else printf "%.0f KB", b / 1024 }'
+}
+
+# Runs inside the install terminal (or from a shell: abyss-software
+# --run-install [--yes] PKG...). Never stops a bundle silently: missing
+# packages are reported by name and the rest is still installed.
+run_install() {
+    # Ask for the password once: run the whole install as root. The marker
+    # file tells a refused password apart from a failed install.
+    if [ "${1:-}" = --elevated ]; then
+        rm -f "$2"; shift 2
+    elif [ "$(id -u)" -ne 0 ]; then
+        mark=$(mktemp "${TMPDIR:-/tmp}/abyss-elevate.XXXXXX") || return 1
+        echo 'Changing installed software needs administrator rights.'
+        abyss-priv /bin/sh "$SELF" --run-install --elevated "$mark" "$@"; rc=$?
+        if [ -e "$mark" ]; then
+            rm -f "$mark"; echo; echo 'Installing software needs your password (doas or sudo). Nothing was installed.'
+            return 1
+        fi
+        return "$rc"
+    fi
+    yes= update=
+    while :; do
+        case ${1:-} in
+            --yes) yes=-y; shift ;;
+            --update) update=-u; shift ;;   # bring installed packages up to date
+            *) break ;;
+        esac
+    done
+    arch=$(machine_arch)
+    wait_for_xbps
+    sync_repos; rc=$?
+    [ "$rc" -eq 2 ] && return 1
+    [ "$rc" -eq 0 ] || echo 'Continuing with the package lists already on this computer.'
+    ok= missing= broken=
+    for pkg; do
+        if xbps-query -R "$pkg" >/dev/null 2>&1; then ok="$ok $pkg"; else missing="$missing $pkg"; fi
+    done
+    if [ -n "$ok" ] && ! xbps-install -n $update $ok >/dev/null 2>&1; then
+        keep=
+        for pkg in $ok; do
+            if xbps-install -n $update "$pkg" >/dev/null 2>&1; then keep="$keep $pkg"; else broken="$broken $pkg"; fi
+        done
+        ok=$keep
+    fi
+    status=1
+    if [ -n "$ok" ]; then
+        if sizes=$(dry_run_size $update $ok); then
+            set -- $sizes
+            [ "$1" -eq 0 ] || { echo; echo "Download: $(human "$1"), disk space needed: $(human "$2")"; }
+        fi
+        if [ -n "$update" ]; then echo "Updating:$ok"; else echo "Installing:$ok"; fi
+        wait_for_xbps
+        abyss-priv xbps-install $yes $update $ok; status=$?
+    fi
+    # Trust the package database, not the exit status: answering "n" at the
+    # xbps prompt exits 0 without installing anything.
+    done_= notdone=
+    for pkg in $ok; do
+        if xbps-query "$pkg" >/dev/null 2>&1; then done_="$done_ $pkg"; else notdone="$notdone $pkg"; fi
+    done
+    echo
+    echo '==================== Summary ===================='
+    if [ -n "$done_" ]; then
+        if [ -n "$update" ]; then echo "Up to date:$done_"; else echo "Installed:$done_"; fi
+    fi
+    if [ -n "$notdone" ] && [ "$status" -eq 0 ]; then
+        echo "Not installed (cancelled):$notdone"
+    elif [ -n "$notdone" ] || [ "$status" -ne 0 ]; then
+        echo "Not installed:$notdone (xbps-install exit $status; see the messages above)"
+    fi
+    [ -z "$missing" ] || echo "Not available for $arch in the enabled repositories:$missing"
+    [ -z "$broken" ] || echo "Cannot be installed on this system (dependency problem):$broken"
+    [ -n "$ok" ] || echo 'Nothing was installed.'
+    [ "$rc" -eq 0 ] || echo 'Note: the package lists could not be updated, so these results may be out of date.'
+    [ -n "$ok" ] && [ "$status" -eq 0 ] && [ -z "$missing$broken$notdone" ]
+}
+
+install_packages() {  # install_packages "word..." (words may carry @arch)
+    arch=$(machine_arch)
+    packages=$(arch_packages "$arch" "$1")
+    if ! valid_names "$packages"; then
+        note 'Nothing to install' "None of these packages is offered for $arch: $1"
         return 1
     fi
-    term 'Install software' "abyss-priv xbps-install -S $packages"
+    if sizes=$(dry_run_size $packages); then
+        set -- $sizes
+        if [ "$1" -ge "$BIG_DOWNLOAD" ]; then
+            answer=$(printf 'Install (downloads %s, needs %s of disk)\nCancel\n' "$(human "$1")" "$(human "$2")" |
+                choose -p 'Large download')
+            case $answer in Install*) ;; *) return 1 ;; esac
+        fi
+    fi
+    xbps_busy && note 'Another install or update is running' 'This one will start when it finishes.'
+    term 'Install software' "/bin/sh '$SELF' --run-install $packages"
 }
 
 search_packages() {
     query=$(printf '' | choose -p 'Search Void packages') || return
     [ -n "$query" ] || return
+    # Lines are "[-] name-version_revision  description"; the version never
+    # contains a dash, so the name is everything before the last one.
     results=$(xbps-query -Rs "$query" 2>/dev/null | awk '
-        { line=$0; sub(/^\[[^]]+\][[:space:]]*/, "", line); $0=line; pkg=$1; sub(/-[0-9].*$/, "", pkg); $1=""; sub(/^[[:space:]]+/, ""); if (pkg != "") printf "%s — %s\n", pkg, $0 }
+        { line=$0; sub(/^\[[^]]+\][[:space:]]*/, "", line); $0=line; pkg=$1; sub(/-[^-]*$/, "", pkg); $1=""; sub(/^[[:space:]]+/, ""); if (pkg != "") printf "%s — %s\n", pkg, $0 }
     ' | sort -u)
     [ -n "$results" ] || { note 'No packages found' "$query"; return; }
     choice=$(printf '%s\n' "$results" | choose -p 'Void packages (type to filter)')
     selected=$(printf '%s\n' "$choice" | sed 's/ —.*//')
     [ -n "$selected" ] || return
-    if [ "$(printf 'Install %s\nCancel\n' "$selected" | choose -p 'Confirm')" = "Install $selected" ]; then
-        install_packages "$selected"
-    fi
+    [ "$(printf 'Install %s\nCancel\n' "$selected" | choose -p 'Confirm')" = "Install $selected" ] || return 1
+    install_packages "$selected"
 }
 
 install_vscode() {
@@ -156,7 +338,14 @@ open_official_page() {
     term 'Official download' "printf '%s\\n\\n' 'Open this official page after installing a browser:' '$url'; printf 'Press Enter to close '; read _"
 }
 
+# label<TAB>action[<TAB>architectures]. Package names must exist in the Void
+# repositories (tests/test_software_packages.py checks them for x86_64 and
+# aarch64); a package or entry that exists on one architecture only carries
+# its architectures (pkg:foo@x86_64, or a third column x86_64) and is hidden
+# elsewhere. Thunar is spelled with a capital T in Void; PipeWire's pulse
+# server is part of the pipewire package.
 catalog() {
+    if [ -n "${ABYSS_SOFTWARE_CATALOG:-}" ]; then cat "$ABYSS_SOFTWARE_CATALOG"; return; fi
     cat <<'EOF'
 Firefox (Void package)	pkg:firefox
 Google Chrome (official download)	chrome
@@ -164,7 +353,7 @@ Chromium (Void package)	pkg:chromium
 Virtual machines (QEMU + virt-manager)	pkg:qemu libvirt virt-manager bridge-utils
 Docker Engine	pkg:docker docker-compose docker-buildx
 VLC media player	pkg:vlc
-External storage (udisks + GVFS)	pkg:udisks2 gvfs thunar
+External storage (udisks + GVFS)	pkg:udisks2 gvfs Thunar
 Visual Studio Code (latest stable)	vscode
 ArtCraft Launcher	artcraft
 Ollama (official installer)	ollama
@@ -173,9 +362,9 @@ OpenCode CLI	opencode
 Google Antigravity (download page)	antigravity
 Cursor (latest AppImage)	cursor
 ChatGPT (web app)	chatgpt
-Audio support (PipeWire + mixer)	pkg:pipewire pipewire-pulse wireplumber pavucontrol
+Audio support (PipeWire + mixer)	pkg:pipewire wireplumber pavucontrol
 Terminal workspace (Vim, lf, fzf, ripgrep, tmux)	pkg:vim lf fzf ripgrep tmux
-Writing and research (TeX Live, Zathura)	pkg:vim texlive texlive-latexmk zathura zathura-pdf-mupdf
+Writing and research (TeX Live, Zathura; about 1.8 GB download)	pkg:vim texlive zathura zathura-pdf-mupdf
 Media tools (mpv, yt-dlp, ffmpeg)	pkg:mpv yt-dlp ffmpeg xclip
 Bluetooth support	pkg:bluez
 Laptop brightness controls	pkg:brightnessctl
@@ -184,20 +373,123 @@ Search Void packages	search
 EOF
 }
 
-if [ "${1:-}" = --search ]; then
-    search_packages
-    exit 0
-fi
-if [ "${1:-}" = --install ] && [ -n "${2:-}" ]; then
-    install_packages "$2"
-    exit $?
-fi
+# The menu for ARCH: entries not offered there are left out, bundles lose the
+# packages that do not exist there, and single-architecture entries say so.
+entries() {  # entries ARCH
+    catalog | while IFS='	' read -r label action arches; do
+        offered_on "$1" "$arches" || continue
+        case $action in
+            pkg:*) pkgs=$(arch_packages "$1" "${action#pkg:}"); [ -n "$pkgs" ] || continue; action="pkg:$pkgs" ;;
+        esac
+        case ${arches:-all} in all) ;; *) label="$label (only on $(printf '%s' "$arches" | sed 's/,/, /g'))" ;; esac
+        printf '%s\t%s\n' "$label" "$action"
+    done
+}
+
+# Names of the installed packages, one per line (one local xbps-query call).
+installed_packages() {
+    xbps-query -l 2>/dev/null | awk '{ n = $2; sub(/-[^-]*$/, "", n); print n }'
+}
+
+# entries ARCH, with a third column: installed state of a package bundle
+# (all, part:<missing names> or none; empty for other actions). Installed
+# bundles are marked in the label so the menu shows them at a glance.
+menu_entries() {
+    have=$(installed_packages)
+    entries "$1" | while IFS='	' read -r label action; do
+        state=
+        case $action in pkg:*)
+            missing=
+            for pkg in ${action#pkg:}; do
+                printf '%s\n' "$have" | grep -qxF "$pkg" || missing="$missing $pkg"
+            done
+            if [ -z "$missing" ]; then state=all; label="$label  ✓ installed"
+            elif [ "$missing" = " ${action#pkg:}" ]; then state=none
+            else state="part:${missing# }"; label="$label  (partly installed, missing:$missing)"; fi ;;
+        esac
+        printf '%s\t%s\t%s\n' "$label" "$action" "$state"
+    done
+}
+
+# The first package of a bundle that is a desktop application, as a command.
+app_command() {
+    for pkg in $1; do
+        cmd=$(printf '%s' "$pkg" | tr 'A-Z' 'a-z')
+        if has "$cmd" && [ -e "${ABYSS_APPLICATIONS_DIR:-/usr/share/applications}/$cmd.desktop" ]; then
+            printf '%s\n' "$cmd"; return 0
+        fi
+    done
+    return 1
+}
+
+remove_packages() {  # remove_packages "name..."
+    valid_names "$1" || return 1
+    answer=$(printf 'Remove %s\nCancel\n' "$1" | choose -p 'Remove (unused dependencies go too)')
+    [ "$answer" = "Remove $1" ] || return 1
+    term 'Remove software' "/bin/sh '$SELF' --run-remove $1"
+}
+
+run_remove() {
+    wait_for_xbps
+    abyss-priv xbps-remove -R "$@"; status=$?
+    echo
+    echo '==================== Summary ===================='
+    if [ "$status" -eq 0 ]; then echo "Removed: $*"
+    else echo "Removing $* did not finish (xbps-remove exit $status); see the messages above."; fi
+    return "$status"
+}
+
+# A bundle that is already (partly) installed: offer what makes sense
+# instead of a blind install.
+installed_actions() {  # installed_actions "pkg..." STATE
+    pkgs=$1 state=$2 options=
+    if [ "$state" = all ]; then
+        cmd=$(app_command "$pkgs") && options="Open $cmd
+"
+        options="${options}Update
+Remove
+Back"
+        prompt='Installed'
+    else
+        missing=${state#part:}
+        present=
+        for pkg in $pkgs; do case " $missing " in *" $pkg "*) ;; *) present="$present $pkg" ;; esac; done
+        options="Install missing: $missing
+Remove installed parts:$present
+Back"
+        prompt='Partly installed'
+    fi
+    choice=$(printf '%s\n' "$options" | choose -p "$prompt") || return 1
+    case $choice in
+        "Open "*) setsid -f "${choice#Open }" >/dev/null 2>&1 ;;
+        Update) term 'Update software' "/bin/sh '$SELF' --run-install --update $pkgs" ;;
+        Remove) remove_packages "$pkgs" ;;
+        'Install missing: '*) install_packages "$missing" ;;
+        'Remove installed parts:'*) remove_packages "${present# }" ;;
+        *) return 1 ;;
+    esac
+}
+
+case "${1:-}" in
+    --search) search_packages; exit 0 ;;
+    --list-entries) entries "${2:-$(machine_arch)}"; exit 0 ;;
+    --run-install) shift; run_install "$@"; exit $? ;;
+    --run-remove) shift; run_remove "$@"; exit $? ;;
+    --install) [ -n "${2:-}" ] || exit 2; install_packages "$2"; exit $? ;;
+esac
 
 while :; do
-    selection=$(catalog | cut -f1 | choose -p 'Software (type to filter)') || exit 0
-    action=$(catalog | awk -F '\t' -v label="$selection" '$1 == label { print $2; exit }')
+    menu=$(menu_entries "$(machine_arch)")   # re-read: an install may have finished
+    selection=$(printf '%s\n' "$menu" | cut -f1 | choose -p 'Software (type to filter)') || exit 0
+    line=$(printf '%s\n' "$menu" | awk -F '\t' -v label="$selection" '$1 == label { print; exit }')
+    action=$(printf '%s\n' "$line" | cut -f2)
+    state=$(printf '%s\n' "$line" | cut -f3)
     case "$action" in
-        pkg:*) install_packages "${action#pkg:}" ;;
+        # Close the menu once a terminal is open, so it can take the password.
+        pkg:*) case $state in
+                   all|part:*) installed_actions "${action#pkg:}" "$state" && exit 0 ;;
+                   *) install_packages "${action#pkg:}" && exit 0 ;;
+               esac ;;
         chrome) open_official_page 'https://www.google.com/chrome/' ;;
         vscode) install_vscode ;;
         artcraft) install_artcraft ;;
@@ -207,7 +499,7 @@ while :; do
         antigravity) open_official_page 'https://antigravity.google/download?os=linux' ;;
         cursor) install_cursor ;;
         chatgpt) open_official_page 'https://chatgpt.com' ;;
-        search) search_packages ;;
+        search) search_packages && exit 0 ;;
         *) exit 0 ;;
     esac
 done

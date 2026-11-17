@@ -387,7 +387,7 @@ act() {
         net-gui)      first "nm-connection-editor" || act net-tui ;;
         net-applet)   if pgrep -u "$(id -u)" -x nm-applet >/dev/null; then pkill -u "$(id -u)" -x nm-applet
                       else first "nm-applet"; fi ;;
-        install-audio) setsid -f abyss-software --install 'pipewire pipewire-pulse wireplumber pavucontrol' >/dev/null 2>&1 ;;
+        install-audio) setsid -f abyss-software --install 'pipewire wireplumber pavucontrol' >/dev/null 2>&1 ;;
         audio-gui)    first "pavucontrol" || act audio-tui ;;
         audio-tui)    if has alsamixer; then term "Audio" alsamixer
                       else term_hold "Audio" 'wpctl status'; fi ;;
