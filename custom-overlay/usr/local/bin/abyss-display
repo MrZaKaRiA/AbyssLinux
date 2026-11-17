@@ -49,10 +49,25 @@ hold_picker() {
     trap 'rm -f "$picker"' EXIT
     trap 'exit 1' HUP INT TERM
 }
+# "WIDTHxHEIGHT" of the X screen, from xrandr --query on stdin.
+screen_size() { awk 'NR == 1 { for (i = 1; i < NF; i++) if ($i == "current") { print $(i + 1) "x" $(i + 3) + 0; exit } }'; }
 # The pointer is sized for the screen, so re-fit it after every mode change.
-fit_cursor() { has abyss-cursor && abyss-cursor >/dev/null 2>&1; :; }
+# feh draws the wallpaper for one screen size: when the size changed (a VM
+# window resized, another resolution) draw it again, or the old picture stays
+# in the corner and repeats over the new area.
+fit_desktop() {
+    has abyss-cursor && abyss-cursor >/dev/null 2>&1
+    f_size=$(xrandr --query 2>/dev/null | screen_size)
+    if [ -n "$f_size" ] && [ "$f_size" != "$size" ]; then
+        size=$f_size
+        has abyss-wallpaper && abyss-wallpaper >/dev/null 2>&1
+    fi
+    :
+}
 
-outputs=$(xrandr --query 2>/dev/null | awk '$2 == "connected" {print $1}')
+query=$(xrandr --query 2>/dev/null)
+size=$(printf '%s\n' "$query" | screen_size)
+outputs=$(printf '%s\n' "$query" | awk '$2 == "connected" {print $1}')
 [ -n "$outputs" ] || { [ "${1:-}" = --status ] || notify 'No connected display outputs found.'; exit 1; }
 
 # Fixed resolution of output $1 according to the saved layout; empty when it
@@ -351,7 +366,7 @@ if [ "${1:-}" = --auto-resolution ]; then
     if [ -r "$profile" ]; then save_profile '' "$list"; else rm -f "$pins"; fi
     for output in $list; do boost_rate "$output"; done
     apply_rates
-    fit_cursor
+    fit_desktop
     notify 'Resolution is automatic: it follows the display or the VM window.'
     exit 0
 fi
@@ -387,7 +402,7 @@ if [ "${1:-}" = --auto ]; then
     apply_rates
     set_primary
     [ -e "$fullrange" ] && apply_range Full
-    fit_cursor
+    fit_desktop
     exit 0
 fi
 
@@ -413,7 +428,7 @@ if [ "${1:-}" = --restore ]; then
     apply_rates
     set_primary
     [ -e "$fullrange" ] && apply_range Full
-    fit_cursor
+    fit_desktop
     exit 0
 fi
 
@@ -447,11 +462,11 @@ while :; do
             if [ "$selected" = "$AUTO_RES" ]; then "$0" --auto-resolution "$output"; continue; fi
             mode=$(printf '%s\n' "$selected" | cut -d ' ' -f1)
             rate=$(printf '%s\n' "$selected" | awk -F ' @ | Hz' '{print $2}')
-            xrandr --output "$output" --mode "$mode" --rate "$rate" && save_profile "$output" && save_rate "$output" "$rate" && fit_cursor && notify "$output is fixed at $mode, $rate Hz. Choose \"$AUTO_RES\" in this list to undo."
+            xrandr --output "$output" --mode "$mode" --rate "$rate" && save_profile "$output" && save_rate "$output" "$rate" && fit_desktop && notify "$output is fixed at $mode, $rate Hz. Choose \"$AUTO_RES\" in this list to undo."
             ;;
         'Turn an output off')
             output=$(printf '%s\n' "$outputs" | choose -p 'Turn off output') || continue
-            [ -n "$output" ] && xrandr --output "$output" --off && save_profile && fit_cursor && notify "$output turned off."
+            [ -n "$output" ] && xrandr --output "$output" --off && save_profile && fit_desktop && notify "$output turned off."
             ;;
         'Reset to automatic') rm -f "$profile" "$rates" "$pins"; "$0" --auto && notify 'Display profile reset.'; exit $? ;;
         *) exit 0 ;;

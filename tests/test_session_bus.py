@@ -46,3 +46,5 @@ class SessionBusTest(unittest.TestCase):
             result = subprocess.run(['/bin/sh', str(SESSION)], env=env, capture_output=True, text=True, timeout=5)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual((root / 'locker-args').read_text().splitlines(), ['--transfer-sleep-lock', '--', 'slock'])
+            # The folder for your own wallpapers exists from the first login.
+            self.assertTrue((root / '.local/share/backgrounds').is_dir())

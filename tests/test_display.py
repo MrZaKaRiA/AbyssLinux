@@ -42,6 +42,14 @@ Virtual-1 connected primary 1920x1200+0+0 (normal left inverted right x axis y a
    1920x1080     60.00
 '''
 
+# ... and once Abyss has followed it.
+VM_FOLLOWED = '''Screen 0: minimum 320 x 200, current 3440 x 1440, maximum 8192 x 8192
+Virtual-1 connected primary 3440x1440+0+0 (normal left inverted right x axis y axis) 0mm x 0mm
+   3440x1440     59.97*+
+   1920x1200     59.95
+   1920x1080     60.00
+'''
+
 # ... and with 1920x1080 chosen by hand.
 VM_FIXED = '''Screen 0: minimum 320 x 200, current 1920 x 1080, maximum 8192 x 8192
 Virtual-1 connected primary 1920x1080+0+0 (normal left inverted right x axis y axis) 0mm x 0mm
@@ -74,7 +82,8 @@ DP-2 disconnected (normal left inverted right x axis y axis)
 
 XRANDR = r'''case " $* " in
     *" --prop "*) printf '%s' "${TEST_PROPS:-}"; exit 0 ;;
-    *" --query "*) printf '%s' "$TEST_XRANDR"; exit 0 ;;
+    *" --query "*) if [ -n "${TEST_XRANDR_AFTER:-}" ] && [ -s "$HOME/xrandr.log" ]; then printf '%s' "$TEST_XRANDR_AFTER"
+                   else printf '%s' "$TEST_XRANDR"; fi; exit 0 ;;
 esac
 printf '%s\n' "$*" >> "$HOME/xrandr.log"
 [ -n "${TEST_FAIL:-}" ] || exit 0
@@ -162,6 +171,20 @@ class DisplayTest(unittest.TestCase):
         calls = self.run_display('--restore')
         self.assertEqual(calls[1:], ['--output DP-1 --auto',
                                      '--output DP-1 --mode 3440x1440 --rate 180.00'])
+
+    def test_wallpaper_is_drawn_again_for_a_new_screen_size(self):
+        # Seen in a VM: after the window was resized the desktop followed, but
+        # the picture feh had drawn for the old size stayed and repeated.
+        self.stub('abyss-wallpaper', 'echo drawn >> "$HOME/wallpaper.log"')
+        self.stub('abyss-cursor', 'exit 0')
+        self.assertEqual(self.run_display('--restore', TEST_XRANDR=VM_RESIZED, TEST_XRANDR_AFTER=VM_FOLLOWED),
+                         ['--output Virtual-1 --auto'])
+        self.assertEqual((self.root / 'wallpaper.log').read_text(), 'drawn\n')
+
+    def test_wallpaper_is_left_alone_when_the_size_stays(self):
+        self.stub('abyss-wallpaper', 'echo drawn >> "$HOME/wallpaper.log"')
+        self.run_display('--auto')          # only the refresh rate changes
+        self.assertFalse((self.root / 'wallpaper.log').exists())
 
     def test_single_rate_virtual_display_is_only_resized(self):
         self.assertEqual(self.run_display('--auto', TEST_XRANDR=VM), ['--output Virtual-1 --auto'])

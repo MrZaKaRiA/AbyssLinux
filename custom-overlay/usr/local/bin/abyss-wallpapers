@@ -89,6 +89,9 @@ current_mode() {
 }
 
 cmd_list() {
+    # The folder for your own images exists from the start, so a picture
+    # can also be copied straight into it (the menu and abyss-session list it).
+    mkdir -p "$USR" 2>/dev/null
     {
         [ -f "$DEFAULT" ] && printf 'system\t%s\n' "$DEFAULT"
         images_in "$SYS" | while IFS= read -r l_f; do

@@ -123,6 +123,17 @@ class WallpaperTest(unittest.TestCase):
         self.image(self.user / 'sky.png')
         self.assertEqual([r[1] for r in self.rows()][2:], ['Sky', 'Sky (sky.png)'])
 
+    def test_user_folder_exists_once_the_manager_has_looked(self):
+        # Users were told to drop images into ~/.local/share/backgrounds, but
+        # only the first "add" created it.
+        self.assertFalse(self.user.exists())
+        self.rows()
+        self.assertTrue(self.user.is_dir())
+        self.image(self.user / 'copied by hand.png')
+        self.assertIn('Copied by hand', [r[1] for r in self.rows()])
+        self.ok('set', 'copied by hand')
+        self.assertEqual(self.choice.read_text(), f'{self.user}/copied by hand.png\n')
+
     # ---- set -----------------------------------------------------------------
     def test_set_by_name(self):
         self.ok('set', 'orbit')

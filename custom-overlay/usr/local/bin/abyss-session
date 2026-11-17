@@ -27,6 +27,8 @@ command -v abyss-rofi-repair >/dev/null 2>&1 && abyss-rofi-repair >/dev/null 2>&
 # A ~/.xinitrc copied before 27.3.3 draws the wallpaper itself; this makes a
 # saved background choice (~/.config/abyss/wallpaper) win over it.
 command -v abyss-wallpaper >/dev/null 2>&1 && abyss-wallpaper --legacy >/dev/null 2>&1 &
+# Your own wallpapers: copy images here, or use Menu > Settings > Display > Wallpaper…
+mkdir -p "$HOME/.local/share/backgrounds" 2>/dev/null
 if [ -f "$HOME/.xinitrc" ]; then
     exec /bin/sh "$HOME/.xinitrc"
 fi
