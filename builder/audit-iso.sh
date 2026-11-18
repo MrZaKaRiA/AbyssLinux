@@ -45,7 +45,7 @@ xbps-query -r "$work/root" -p pkgver abyss-dwm | grep -Fx 'abyss-dwm-6.8_10'
 test -x "$work/root/usr/bin/abyss-record"
 test -f "$work/root/etc/skel/.config/zathura/zathurarc"
 test -f "$work/root/etc/skel/.vim/ftplugin/tex.vim"
-xbps-query -r "$work/root" -p pkgver abyss-theme | grep -Fx 'abyss-theme-1.0_5'
+xbps-query -r "$work/root" -p pkgver abyss-theme | grep -Fx 'abyss-theme-1.0_6'
 # Shell helpers come from the package (so updates reach installed systems),
 # never from an image-only copy
 xbps-query -r "$work/root" -o /etc/profile.d/zz-abyss-cli.sh | grep -q '^abyss-desktop-'

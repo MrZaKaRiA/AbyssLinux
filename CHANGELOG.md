@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+* **Login screen redesigned:** a centred translucent card with your name, the password field and a purple Log In button; clock, keyboard layout, accessibility and power menu on a transparent top line; the sharp 5120x2160 "Abyss Orbit" picture, zoomed to fill 16:9, 16:10 and 21:9 screens without stretching. It is sized relative to the text, icons included, so it looks the same at 100% and 200%, and it uses the screen-based scale (100% on a normal monitor in a Mac VM).
+* Updating abyss-theme hands the login screen back to the package on older installs: unedited copies of the old Abyss greeter config and greeter CSS are replaced; edited ones are kept. abyss-theme now depends on font-inter.
 * **Display scale follows the screen:** about 100% for a VM window on a normal monitor (for example a 34" 3440x1440 ultrawide), 200% only for Retina-sized windows, and real monitors are scaled by their actual pixel density. Previously every Mac VM got 200%.
 * When the resolution changes (a VM window moved to another screen, a monitor plugged in), the scale is re-applied once with a short notice. New windows use it right away; the bar after the next login.
 * **Settings › Display › Display scale:** automatic (shows what it gives now), or 100/125/150/175/200%, with the 20-second keep/revert prompt. Scales pinned earlier are kept.

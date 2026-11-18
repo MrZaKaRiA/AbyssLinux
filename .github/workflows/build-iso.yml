@@ -68,7 +68,7 @@ jobs:
                curl -fsI "$repo/abyss-slock-1.7_2.${{ matrix.arch }}.xbps" >/dev/null && \
                curl -fsI "$repo/abyss-st-0.9.3_2.${{ matrix.arch }}.xbps" >/dev/null && \
                curl -fsI "$repo/abyss-dwm-6.8_10.${{ matrix.arch }}.xbps" >/dev/null && \
-               curl -fsI "$repo/abyss-theme-1.0_5.${{ matrix.arch }}.xbps" >/dev/null; then
+               curl -fsI "$repo/abyss-theme-1.0_6.${{ matrix.arch }}.xbps" >/dev/null; then
               exit 0
             fi
             sleep 10
