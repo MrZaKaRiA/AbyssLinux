@@ -416,19 +416,20 @@ class AbyssBarTest(unittest.TestCase):
     @unittest.skipIf(shutil.which('pass', path=SYSTEM_PATH), 'pass is installed here')
     def test_passwords_offers_to_install_pass(self):
         self.click(3, 1, pick='pass-install')
-        self.assertIn('Install Password manager (pass)…\tpass-install', self.menu())
-        self.assertIn("abyss-software --install pass pinentry-gtk xclip", self.box.calls())
+        self.assertIn('Install Passwords (pass + browser autofill)…\tpass-install', self.menu())
+        self.assertIn("abyss-software --install pass pass-otp browserpass pinentry-gtk xclip", self.box.calls())
 
     def test_passwords_menu_with_pass(self):
         stub(self.box.bin, 'pass', 'echo "pass $*" >> "$HOME/calls.log"')
-        stub(self.box.bin, 'passmenu', 'echo "passmenu $*" >> "$HOME/calls.log"')
         self.click(3, 1)
         self.assertIn('Set up the password store…', self.menu())
         write(self.box.home / '.password-store/.gpg-id', 'ABC\n')
         write(self.box.home / '.password-store/web/github.gpg', '')
+        self.box.file('dmenu.pick', 'web/github\n')
         self.click(3, 1, pick='pass-copy')
         self.assertIn('Passwords · 1 saved', self.menu())
-        self.assertIn('passmenu -i -c -l 16', self.box.calls())
+        self.assertIn('󰐕  Add login…\tpass-add', self.menu())   # more in test_passwords.py
+        self.assertIn('pass show -c -- web/github', self.box.calls())
 
     def test_clock_menu(self):
         stub(self.box.bin, 'date', 'case "$1" in "+%-d") echo 18 ;; "+%:z") echo +00:00 ;; '

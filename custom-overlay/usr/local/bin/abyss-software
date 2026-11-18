@@ -389,7 +389,7 @@ Cursor (latest AppImage)	cursor
 ChatGPT (web app)	chatgpt
 Audio support (PipeWire + mixer)	pkg:pipewire wireplumber pavucontrol
 Terminal workspace (Vim, lf, fzf, ripgrep, tmux)	pkg:vim lf fzf ripgrep tmux
-Password manager (pass)	pkg:pass pinentry-gtk xclip
+Passwords (pass + browser autofill)	pkg:pass pass-otp browserpass pinentry-gtk xclip
 Writing and research (TeX Live, Zathura; about 1.8 GB download)	pkg:vim texlive zathura zathura-pdf-mupdf
 Media tools (mpv, yt-dlp, ffmpeg)	pkg:mpv yt-dlp ffmpeg xclip
 Bluetooth support	pkg:bluez

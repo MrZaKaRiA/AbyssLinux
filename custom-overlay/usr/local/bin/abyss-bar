@@ -10,7 +10,7 @@
 #   block  module      left click (1)                  middle (2)    scroll (4/5)
 #   1      network     connection, Wi-Fi networks, settings
 #   2      docker      containers: logs, stop, start, shell; lazydocker
-#   3      passwords   pass: copy, type, add, generate (or install it)
+#   3      passwords   logins (pass): add, search, copy, browser autofill
 #   4      keyboard    layouts, switch, keyboard settings  switch
 #   5      sound       volume, mute, mixer                 mute          volume
 #   6      battery     charge and power diagnostics
@@ -25,6 +25,7 @@
 #   abyss-bar MODULE [BUTTON]   the same, by name
 #   abyss-bar --refresh         make dwm-statusbar update now
 #   abyss-bar --blocks          print the block numbers
+#   abyss-bar --autofill-setup  set up Browserpass for the installed browsers
 # ==============================================================================
 
 case ":$PATH:" in *:/usr/local/bin:*) ;; *) PATH="/usr/local/bin:$PATH" ;; esac
@@ -276,16 +277,139 @@ docker_act() {  # docker_act VERB ID
 }
 
 # ---- passwords ---------------------------------------------------------------
-# The macOS Passwords menu is pass on Abyss: one GnuPG-encrypted file per
-# password in ~/.password-store, picked with dmenu (passmenu).
-PASS_PACKAGES='pass pinentry-gtk xclip'
+# The Passwords menu (Apple Passwords on Abyss) is pass: one GnuPG-encrypted
+# file per login in ~/.password-store, named the way Browserpass (browser
+# autofill) finds a website's logins:
+#
+#   github.com/me@example.com.gpg      <domain>/<username>
+#       the password                   (first line)
+#       login: me@example.com
+#       url: https://github.com/
+#       otpauth://totp/...             optional: pass-otp makes the codes
+#       notes: ...                     optional
+#
+# Older entries (any name, the password on the first line) keep working.
+PASS_PACKAGES='pass pass-otp browserpass pinentry-gtk xclip'
 pass_store() { printf '%s\n' "${PASSWORD_STORE_DIR:-$HOME/.password-store}"; }
+CLIP_TIME=${PASSWORD_STORE_CLIP_TIME:-45}
+
+# A domain (with an optional port) in an entry's name.
+PASS_SITE_RE='^([a-z0-9-]+(\.[a-z0-9-]+)+|localhost)(:[0-9]+)?$'
+is_site() { printf '%s\n' "$1" | grep -qiE "$PASS_SITE_RE"; }
+
+# Entry names (one per line) -> "label<TAB>name": "domain — username",
+# "domain", or the name itself; folders above the domain follow a "·".
+PASS_LABEL='
+    function site(s) { return tolower(s) ~ /^([a-z0-9-]+(\.[a-z0-9-]+)+|localhost)(:[0-9]+)?$/ }
+    {
+        n = NF; pre = ""
+        if (n >= 2 && site($(n - 1))) { label = $(n - 1) " — " $n; k = n - 2 }
+        else if (site($n)) { label = $n; k = n - 1 }
+        else { print $0 "\t" $0; next }
+        for (i = 1; i <= k; i++) pre = pre (pre == "" ? "" : "/") $i
+        print label (pre == "" ? "" : "  · " pre) "\t" $0
+    }'
+
+pass_entries() {  # every entry: label<TAB>name, by label
+    store=$(pass_store)
+    [ -d "$store" ] || return 0
+    (cd "$store" && find . -name '*.gpg' ! -path './.git/*' 2>/dev/null) |
+        sed 's|^\./||; s|\.gpg$||' | awk -F/ "$PASS_LABEL" | sort -f
+}
+
+pass_label() { printf '%s\n' "$1" | awk -F/ "$PASS_LABEL" | cut -f1; }
+
+# A website as typed (a full address or a domain) -> "domain<TAB>url": lower
+# case, without the scheme, user, path or "www."; a port other than 80 or
+# 443 stays (Browserpass then fills it on that port only).
+pass_site() {
+    printf '%s\n' "$1" | awk '{
+        s = tolower($0); gsub(/^[ \t]+|[ \t]+$/, "", s); scheme = "https"
+        if (match(s, /^[a-z][a-z0-9+.-]*:\/\//)) { scheme = substr(s, 1, RLENGTH - 3); s = substr(s, RLENGTH + 1) }
+        sub(/[\/?#].*$/, "", s); sub(/^.*@/, "", s); sub(/^www\./, "", s)
+        port = ""
+        if (match(s, /:[0-9]+$/)) { port = substr(s, RSTART); s = substr(s, 1, RSTART - 1) }
+        sub(/\.$/, "", s)
+        if (port == ":443" || port == ":80") port = ""
+        if (scheme != "http") scheme = "https"
+        if (s !~ /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/) exit 1
+        if (s !~ /\./ && s != "localhost") exit 1
+        print s port "\t" scheme "://" s port "/"
+    }'
+}
+
+# The username of an entry: its login:, username: or user: line (what
+# Browserpass fills), else the last part of a <domain>/<username> name.
+pass_user() {  # pass_user NAME BODY
+    u=$(printf '%s\n' "$2" | awk 'NR > 1 && tolower($0) ~ /^(login|username|user)[ \t]*:/ {
+        sub(/^[^:]*:[ \t]*/, ""); sub(/[ \t\r]+$/, ""); print; exit }')
+    if [ -z "$u" ] && [ "${1%/*}" != "$1" ] && is_site "$(basename "${1%/*}")"; then u=${1##*/}; fi
+    printf '%s\n' "$u"
+}
+
+pass_url() {  # pass_url BODY
+    printf '%s\n' "$1" | awk 'NR > 1 && tolower($0) ~ /^(url|uri|website|site|link|launch)[ \t]*:/ {
+        sub(/^[^:]*:[ \t]*/, ""); sub(/[ \t\r]+$/, ""); print; exit }'
+}
+
+pass_has_otp() { printf '%s\n' "$1" | grep -q '^otpauth://'; }
+pass_otp_ok() { pass otp version >/dev/null 2>&1; }     # pass-otp is installed
+
+# A verification-code setup key (base32) or an otpauth:// link -> the
+# otpauth line pass-otp reads; nothing for an empty key.
+pass_otpauth() {  # pass_otpauth KEY DOMAIN USER
+    case $1 in
+        '') return 0 ;;
+        otpauth://*) printf '%s\n' "$1"; return 0 ;;
+    esac
+    s=$(printf '%s' "$1" | tr -d ' -' | tr 'a-z' 'A-Z')
+    case $s in ''|*[!A-Z2-7=]*) return 1 ;; esac
+    issuer=${2%%:*}
+    printf 'otpauth://totp/%s:%s?secret=%s&issuer=%s\n' "$issuer" \
+        "$(printf '%s' "${3:-$issuer}" | sed 's/ /%20/g')" "$s" "$issuer"
+}
+
+# A strong password like Apple's: three groups of six letters and digits
+# (about 100 bits), with an upper-case letter, a lower-case one and a digit.
+pass_gen() {
+    while :; do
+        p=$(LC_ALL=C tr -dc 'abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789' < /dev/urandom | head -c 18)
+        case $p in *[a-z]*) ;; *) continue ;; esac
+        case $p in *[A-Z]*) ;; *) continue ;; esac
+        case $p in *[0-9]*) ;; *) continue ;; esac
+        printf '%s-%s-%s\n' "$(printf '%s' "$p" | cut -c1-6)" "$(printf '%s' "$p" | cut -c7-12)" "$(printf '%s' "$p" | cut -c13-18)"
+        return
+    done
+}
+
+# Copy TEXT; with SECONDS, clear the clipboard then if it still holds TEXT.
+# xclip stays in the background to serve the clipboard: it must not keep the
+# output of a $(...) open (the caller would wait until something else is copied).
+clip() {  # clip TEXT [SECONDS]
+    has xclip || { notify "Passwords" "Install xclip to copy"; return 1; }
+    printf '%s' "$1" | xclip -selection clipboard >/dev/null 2>&1 || return 1
+    [ -n "${2:-}" ] || return 0
+    (sleep "$2"; [ "$(xclip -o -selection clipboard 2>/dev/null)" = "$1" ] &&
+        printf '' | xclip -selection clipboard) >/dev/null 2>&1 &
+}
+
+open_url() {
+    for b in xdg-open firefox chromium google-chrome-stable; do
+        has "$b" && { setsid -f "$b" "$1" >/dev/null 2>&1; return; }
+    done
+}
+
+pass_valid_user() {
+    case $1 in */*|*\\*|*\'*|.*|-*)
+        notify "Passwords" "A username cannot contain / \\ or ' or start with . or -"; return 1 ;;
+    esac
+}
 
 passwords_menu() {
     if ! has pass; then
         printf '󰌋  Passwords\t-\n'
-        printf '    Keep your passwords encrypted with pass\t-\n\n'
-        printf '󰏖  Install Password manager (pass)…\tpass-install\n'
+        printf '    Save logins encrypted with pass; Firefox and Chromium fill them\t-\n\n'
+        printf '󰏖  Install Passwords (pass + browser autofill)…\tpass-install\n'
         return
     fi
     store=$(pass_store)
@@ -294,47 +418,190 @@ passwords_menu() {
         printf '󰒓  Set up the password store…\tpass-setup\n'
         return
     fi
-    n=$(find "$store" -name '*.gpg' 2>/dev/null | grep -c .)
+    n=$(pass_entries | grep -c .)
     printf '󰌋  Passwords · %s saved\t-\n\n' "$n"
-    printf '󰆏  Copy a password…\tpass-copy\n'
-    has xdotool && printf '󰌌  Type a password…\tpass-type\n'
-    printf '󰐕  Add a password…\tpass-add\n'
-    printf '󰒃  Generate a password…\tpass-generate\n'
+    printf '󰐕  Add login…\tpass-add\n'
+    printf '󰍉  Search logins…\tpass-search\n'
+    printf '󰖟  Set up browser autofill…  (%s)\tpass-autofill\n\n' "$(bp_status)"
+    printf '󰆏  Copy password…\tpass-copy\n'
+    printf '󰀄  Copy username…\tpass-user\n'
+    pass_otp_ok && printf '󰦯  Copy one-time code…\tpass-otp\n'
+    has xdotool && printf '󰌌  Type password…\tpass-type\n'
+    printf '󰏫  Edit…\tpass-edit\n'
+    printf '󰆴  Delete…\tpass-delete\n'
+    printf '󰒃  Copy a new strong password\tpass-generate\n'
     printf '󰆍  Open the store in a terminal\tpass-term\n'
 }
 
-pass_pick() {  # pass_pick [--type]: passmenu, or the same with dmenu
-    if has passmenu; then
-        passmenu "$@" -i -c -l 16 -fn "$FONT" -nb "$NB" -nf "$NF" -sb "$SB" -sf "$SF"
-        return
+pass_pick() {  # pass_pick PROMPT: the chosen entry's name on stdout
+    list=$(pass_entries)
+    [ -n "$list" ] || { notify "Passwords" "No logins saved yet: Add login… saves one"; return 1; }
+    sel=$(printf '%s\n' "$list" | cut -f1 | dmenu_theme -p "$1") || return 1
+    printf '%s\n' "$list" | awk -F'\t' -v s="$sel" '$1 == s { print $2; f = 1; exit } END { exit !f }'
+}
+
+pass_save() {  # pass_save NAME CONTENT (pass insert asks nothing without a tty)
+    printf '%s\n' "$2" | pass insert -m -f -- "$1" >/dev/null 2>&1
+}
+
+# A password for LABEL: a generated strong one (the default, shown so it can
+# be copied) or a typed one (dmenu -P hides what is typed). Prints it.
+pass_ask_password() {
+    how=$(printf '󰒃  Generate strong password\n󰌌  Type a password\n' | dmenu_theme -p "Password for $1") || return 1
+    case $how in
+        *Type*)
+            pw=$(printf '' | dmenu_theme -P -p "Password for $1") || return 1
+            [ -n "$pw" ] || return 1 ;;
+        *Generate*)
+            while :; do
+                pw=$(pass_gen)
+                c=$(printf '󰄬  Use this password\n󰆏  Use it and copy it\n󰑐  Generate another\n' |
+                    dmenu_theme -p "Strong password: $pw") || return 1
+                case $c in
+                    *another*) continue ;;
+                    *copy*) clip "$pw" "$CLIP_TIME" && inform "Passwords" "Password copied (cleared in $CLIP_TIME s)" ;;
+                    *Use*) ;;
+                    *) return 1 ;;
+                esac
+                break
+            done ;;
+        *) return 1 ;;
+    esac
+    printf '%s\n' "$pw"
+}
+
+pass_add() {
+    site=$(printf '' | dmenu_theme -p 'Website (github.com or a full address)') || return 0
+    [ -n "$site" ] || return 0
+    info=$(pass_site "$site") || { notify "Passwords" "Not a website address: $site (type it like github.com)"; return 0; }
+    domain=${info%%"$TAB"*} url=${info#*"$TAB"}
+    user=$(printf '' | dmenu_theme -p "Username or email for $domain") || return 0
+    user=$(printf '%s' "$user" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
+    pass_valid_user "$user" || return 0
+    name=$domain${user:+/$user} label=$domain${user:+ — $user}
+    if [ -e "$(pass_store)/$name.gpg" ]; then
+        [ "$(printf 'Cancel\nReplace it\n' | dmenu_theme -p "$label is already saved")" = 'Replace it' ] || return 0
     fi
-    store=$(pass_store)
-    name=$(cd "$store" 2>/dev/null && find . -name '*.gpg' | sed 's|^\./||; s|\.gpg$||' | sort |
-        dmenu_theme -p 'Password') || return 0
-    [ -n "$name" ] || return 0
-    if [ "${1:-}" = --type ]; then
-        pass show -- "$name" | head -n 1 | tr -d '\n' | xdotool type --clearmodifiers --file -
+    pw=$(pass_ask_password "$label") || return 0
+    otp=
+    if pass_otp_ok; then
+        key=$(printf '' | dmenu_theme -p 'Verification code setup key or otpauth:// link (optional)') || key=
+        otp=$(pass_otpauth "$key" "$domain" "$user") ||
+            { notify "Passwords" "That setup key is not valid: saved without a verification code"; otp=; }
+    fi
+    notes=$(printf '' | dmenu_theme -p 'Notes (optional)') || notes=
+    body=$(printf '%s\n' "$pw"
+           [ -z "$user" ] || printf 'login: %s\n' "$user"
+           printf 'url: %s\n' "$url"
+           [ -z "$otp" ] || printf '%s\n' "$otp"
+           [ -z "$notes" ] || printf 'notes: %s\n' "$notes")
+    if pass_save "$name" "$body"; then inform "Passwords" "Saved $label"; refresh
+    else notify "Passwords: could not save $label" "Set up the password store first"; fi
+}
+
+# One login, like a login in Apple Passwords: copy, type, open, change, delete.
+pass_detail() {  # pass_detail NAME [edit]
+    body=$(pass show -- "$1" 2>/dev/null) || { notify "Passwords" "Could not open $1"; return 0; }
+    u=$(pass_user "$1" "$body") url=$(pass_url "$body")
+    if [ "${2:-}" = edit ]; then
+        rows="󰏫  Change password…${TAB}change
+󰀄  Change username…${TAB}rename
+󰷈  Edit all fields in a terminal…${TAB}edit"
     else
-        pass show -c -- "$name" >/dev/null 2>&1 && inform "Passwords" "Copied $name (cleared in 45 s)"
+        rows="󰆏  Copy password${TAB}copy"
+        [ -z "$u" ] || rows="$rows
+󰀄  Copy username: $u${TAB}user"
+        ! pass_has_otp "$body" || rows="$rows
+󰦯  Copy one-time code${TAB}otp"
+        ! has xdotool || rows="$rows
+󰌌  Type password${TAB}type"
+        [ -z "$url" ] || rows="$rows
+󰖟  Open $url${TAB}open"
+        rows="$rows
+󰏫  Change password…${TAB}change
+󰀄  Change username…${TAB}rename
+󰷈  Edit all fields in a terminal…${TAB}edit
+󰆴  Delete…${TAB}delete"
     fi
+    sel=$(printf '%s\n' "$rows" | cut -f1 | dmenu_theme -p "$(pass_label "$1")") || return 0
+    what=$(printf '%s\n' "$rows" | awk -F'\t' -v s="$sel" '$1 == s { print $2; exit }')
+    [ -n "$what" ] && pass_do "$what" "$1" "$body"
 }
 
-pass_name() {  # PROMPT -> a store name on stdout
-    name=$(printf '' | dmenu_theme -p "$1") || return 1
-    case $name in ''|-*|*..*|*[!A-Za-z0-9._@/+\ -]*) return 1 ;; esac
-    printf '%s\n' "$name"
+pass_do() {  # pass_do VERB NAME [BODY]
+    verb=$1 name=$2 body=${3:-}
+    label=$(pass_label "$name")
+    case $verb in copy|delete|edit) ;; *)
+        [ -n "$body" ] || body=$(pass show -- "$name" 2>/dev/null) ||
+            { notify "Passwords" "Could not open $label"; return 0; } ;;
+    esac
+    case $verb in
+        copy)
+            pass show -c -- "$name" >/dev/null 2>&1 &&
+                inform "Passwords" "Copied the password for $label (cleared in $CLIP_TIME s)" ;;
+        user)
+            u=$(pass_user "$name" "$body")
+            [ -n "$u" ] || { notify "Passwords" "$label has no username"; return 0; }
+            clip "$u" && inform "Passwords" "Copied the username $u" ;;
+        otp)
+            pass_has_otp "$body" || { notify "Passwords" "$label has no verification code"; return 0; }
+            pass_otp_ok || { notify "Passwords" "Install pass-otp for one-time codes"; return 0; }
+            pass otp code -c -- "$name" >/dev/null 2>&1 &&
+                inform "Passwords" "Copied the one-time code for $label" ;;
+        type)
+            printf '%s\n' "$body" | head -n 1 | tr -d '\n' | xdotool type --clearmodifiers --file - ;;
+        open)
+            url=$(pass_url "$body"); [ -z "$url" ] || open_url "$url" ;;
+        change)
+            pw=$(pass_ask_password "$label") || return 0
+            new=$(printf '%s\n' "$pw"; printf '%s\n' "$body" | sed 1d)
+            if pass_save "$name" "$new"; then inform "Passwords" "Changed the password for $label"
+            else notify "Passwords" "Could not save $label"; fi ;;
+        rename)
+            nu=$(printf '' | dmenu_theme -p "New username or email for $label") || return 0
+            nu=$(printf '%s' "$nu" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
+            [ -n "$nu" ] && pass_valid_user "$nu" || return 0
+            dir=${name%/*}; [ "$dir" != "$name" ] || dir=
+            if [ -n "$dir" ] && is_site "$(basename "$dir")"; then new_name=$dir/$nu
+            elif is_site "$(basename "$name")"; then new_name=$name/$nu
+            else new_name=$name; fi
+            if [ "$new_name" != "$name" ] && [ -e "$(pass_store)/$new_name.gpg" ]; then
+                notify "Passwords" "$(pass_label "$new_name") is already saved"; return 0
+            fi
+            new=$(printf '%s\n' "$body" | awk -v u="$nu" '
+                { l[NR] = $0 }
+                NR > 1 && !d && tolower($0) ~ /^(login|username|user)[ \t]*:/ { l[NR] = "login: " u; d = 1 }
+                END { for (i = 1; i <= NR; i++) { print l[i]; if (i == 1 && !d) print "login: " u } }')
+            pass_save "$new_name" "$new" || { notify "Passwords" "Could not save $label"; return 0; }
+            [ "$new_name" = "$name" ] || pass rm -f -- "$name" >/dev/null 2>&1
+            inform "Passwords" "Saved $(pass_label "$new_name")" ;;
+        edit)
+            term "Passwords" pass edit -- "$name" ;;
+        delete)
+            c=$(printf 'Keep it\nDelete %s\n' "$label" | dmenu_theme -p "Delete $label? This cannot be undone") || return 0
+            [ "$c" = "Delete $label" ] || return 0
+            pass rm -f -- "$name" >/dev/null 2>&1 && inform "Passwords" "Deleted $label"
+            refresh ;;
+    esac
 }
 
-# Runs in a terminal: a GnuPG key (created when there is none), then pass init.
+# gpg asks for the key's passphrase in a window: also when dmenu or a
+# browser (Browserpass) decrypts a login, where there is no terminal.
+pass_pinentry() {
+    [ -x /usr/bin/pinentry-gtk-2 ] || return 0
+    grep -qs '^pinentry-program' "$HOME/.gnupg/gpg-agent.conf" && return 0
+    mkdir -p -m 700 "$HOME/.gnupg" &&
+        echo 'pinentry-program /usr/bin/pinentry-gtk-2' >> "$HOME/.gnupg/gpg-agent.conf"
+    gpgconf --kill gpg-agent 2>/dev/null
+    return 0
+}
+
+# Runs in a terminal: a GnuPG key (created when there is none), pass init,
+# then browser autofill.
 pass_setup() {
-    echo 'pass keeps each password in a file encrypted with your GnuPG key.'
+    echo 'pass keeps each login in a file encrypted with your GnuPG key.'
     echo
-    if [ -x /usr/bin/pinentry-gtk-2 ] && ! grep -qs '^pinentry-program' "$HOME/.gnupg/gpg-agent.conf"; then
-        # gpg asks for the passphrase in a window, also when dmenu needs it
-        mkdir -p -m 700 "$HOME/.gnupg" &&
-            echo 'pinentry-program /usr/bin/pinentry-gtk-2' >> "$HOME/.gnupg/gpg-agent.conf"
-        gpgconf --kill gpg-agent 2>/dev/null
-    fi
+    pass_pinentry
     key=$(gpg --list-secret-keys --with-colons 2>/dev/null | awk -F: '$1 == "fpr" { print $10; exit }')
     if [ -z "$key" ]; then
         echo 'First a GnuPG key: your name and e-mail label it, a passphrase protects it.'
@@ -345,7 +612,149 @@ pass_setup() {
         key=$(gpg --list-secret-keys --with-colons 2>/dev/null | awk -F: '$1 == "fpr" { print $10; exit }')
     fi
     [ -n "$key" ] || { echo 'No GnuPG key, nothing was set up.'; return 1; }
-    pass init "$key" && echo && echo 'Done: click 󰌋 on the bar to add and copy passwords.'
+    pass init "$key" || return 1
+    echo
+    autofill_setup
+    echo
+    echo 'Done: click 󰌋 on the bar to add logins and copy passwords.'
+}
+
+# ---- browser autofill (Browserpass) --------------------------------------------
+# Browserpass is a browser extension plus a native messaging host (Void's
+# browserpass package, /usr/bin/browserpass-native) that reads the password
+# store and asks gpg to decrypt a login. The package registers the host
+# system-wide for Firefox, Chromium and Google Chrome, and sets a Chromium and
+# Chrome policy that installs the extension from the Chrome Web Store; Firefox
+# users add the extension from addons.mozilla.org once. A browser without a
+# system-wide host gets one in its user folder.
+BP_HOST=com.github.browserpass.native.json
+BP_ROOT=${ABYSS_BROWSERPASS_ROOT:-}       # tests: a root for the system folders
+BP_FIREFOX_ID=browserpass@maximbaz.com
+BP_CHROME_ID=naepdomgkenhinolocfifgehidddafch
+BP_FIREFOX_PAGE='https://addons.mozilla.org/firefox/addon/browserpass-ce/'
+BP_CHROME_PAGE="https://chromewebstore.google.com/detail/browserpass/$BP_CHROME_ID"
+BP_BROWSERS='firefox chromium chrome'
+CONF=${XDG_CONFIG_HOME:-$HOME/.config}
+
+bp_native() { command -v browserpass-native 2>/dev/null || command -v browserpass 2>/dev/null; }
+
+bp_name() {
+    case $1 in firefox) echo Firefox ;; chromium) echo Chromium ;; chrome) echo 'Google Chrome' ;; esac
+}
+
+bp_command() {  # the browser's command, when it is installed
+    case $1 in
+        firefox)  set -- firefox ;;
+        chromium) set -- chromium chromium-browser ;;
+        chrome)   set -- google-chrome-stable google-chrome ;;
+    esac
+    for c in "$@"; do has "$c" && { echo "$c"; return 0; }; done
+    return 1
+}
+
+bp_system_dirs() {
+    case $1 in
+        firefox)  echo "$BP_ROOT/usr/lib/mozilla/native-messaging-hosts $BP_ROOT/usr/lib64/mozilla/native-messaging-hosts" ;;
+        chromium) echo "$BP_ROOT/etc/chromium/native-messaging-hosts" ;;
+        chrome)   echo "$BP_ROOT/etc/opt/chrome/native-messaging-hosts" ;;
+    esac
+}
+
+# Firefox 147 and later keep a new profile in ~/.config/mozilla (XDG), older
+# ones in ~/.mozilla: a user host goes in both.
+bp_user_dirs() {
+    case $1 in
+        firefox)  echo "$HOME/.mozilla/native-messaging-hosts $CONF/mozilla/native-messaging-hosts" ;;
+        chromium) echo "$CONF/chromium/NativeMessagingHosts" ;;
+        chrome)   echo "$CONF/google-chrome/NativeMessagingHosts" ;;
+    esac
+}
+
+bp_policy() {
+    case $1 in
+        chromium) echo "$BP_ROOT/etc/chromium/policies/managed/$BP_HOST" ;;
+        chrome)   echo "$BP_ROOT/etc/opt/chrome/policies/managed/$BP_HOST" ;;
+    esac
+}
+
+bp_host_file() {  # the host manifest the browser finds, if any
+    for d in $(bp_system_dirs "$1") $(bp_user_dirs "$1"); do
+        [ -f "$d/$BP_HOST" ] && { echo "$d/$BP_HOST"; return 0; }
+    done
+    return 1
+}
+
+bp_has_extension() {
+    case $1 in
+        firefox)
+            for f in "$HOME"/.mozilla/firefox/*/extensions/$BP_FIREFOX_ID.xpi \
+                     "$CONF"/mozilla/firefox/*/extensions/$BP_FIREFOX_ID.xpi; do
+                [ -f "$f" ] && return 0
+            done ;;
+        chromium|chrome)
+            dir=chromium; [ "$1" = chrome ] && dir=google-chrome
+            for d in "$CONF/$dir"/*/Extensions/$BP_CHROME_ID; do [ -d "$d" ] && return 0; done ;;
+    esac
+    return 1
+}
+
+bp_register() {  # bp_register BROWSER NATIVE: write the user host manifests
+    if [ "$1" = firefox ]; then
+        allow="\"allowed_extensions\": [\"$BP_FIREFOX_ID\"]"
+    else
+        allow="\"allowed_origins\": [\"chrome-extension://$BP_CHROME_ID/\", \"chrome-extension://pjmbgaakjkbhpopmakjoedenlfdmcdgm/\", \"chrome-extension://klfoddkbhleoaabpmiigbmpbjfljimgb/\"]"
+    fi
+    for dir in $(bp_user_dirs "$1"); do
+        mkdir -p "$dir" &&
+        printf '{\n    "name": "com.github.browserpass.native",\n    "description": "Browserpass native component",\n    "path": "%s",\n    "type": "stdio",\n    %s\n}\n' \
+            "$2" "$allow" > "$dir/$BP_HOST" || return 1
+    done
+    echo "$dir/$BP_HOST"
+}
+
+bp_status() {  # one line for the menu: autofill in which browsers
+    bp_native >/dev/null || { echo 'not installed'; return; }
+    out=
+    for b in $BP_BROWSERS; do
+        bp_command "$b" >/dev/null || continue
+        if ! bp_host_file "$b" >/dev/null; then s="$(bp_name "$b"): not set up"
+        elif bp_has_extension "$b"; then s="$(bp_name "$b") ✓"
+        elif [ "$b" != firefox ] && [ -f "$(bp_policy "$b")" ]; then s="$(bp_name "$b"): start it once"
+        else s="$(bp_name "$b"): add the extension"; fi
+        out="${out:+$out, }$s"
+    done
+    echo "${out:-no browser installed}"
+}
+
+# Runs in a terminal: the host for each installed browser, GUI pinentry, and
+# the extension's store page where the extension is missing.
+autofill_setup() {
+    echo 'Browser autofill: the Browserpass extension fills logins from your password store.'
+    native=$(bp_native) || {
+        echo 'browserpass is not installed: install "Passwords (pass + browser autofill)" from Install software.'
+        return 1; }
+    pass_pinentry
+    found=
+    for b in $BP_BROWSERS; do
+        cmd=$(bp_command "$b") || continue
+        found=1 name=$(bp_name "$b")
+        host=$(bp_host_file "$b") || host=$(bp_register "$b" "$native") ||
+            { echo "$name: could not register the native host"; continue; }
+        echo "$name: native host $host"
+        if bp_has_extension "$b"; then
+            echo "    Browserpass extension installed"
+        elif [ "$b" != firefox ] && [ -f "$(bp_policy "$b")" ]; then
+            echo "    $name installs the Browserpass extension by itself when it starts (browserpass package policy)"
+        else
+            page=$BP_CHROME_PAGE; [ "$b" = firefox ] && page=$BP_FIREFOX_PAGE
+            echo "    Opening the Browserpass extension page: click \"Add to $name\" once."
+            setsid -f "$cmd" "$page" >/dev/null 2>&1
+        fi
+    done
+    [ -n "$found" ] || echo 'No browser found: install Firefox or Chromium from Install software, then run this again.'
+    echo
+    echo 'On a login page click the Browserpass icon (or press Ctrl+Shift+L) and pick the login;'
+    echo 'GnuPG asks for your key passphrase in a window the first time.'
 }
 
 # ---- keyboard ----------------------------------------------------------------
@@ -531,12 +940,21 @@ act() {
         lazydocker)    term "lazydocker" lazydocker ;;
         pass-install)  setsid -f abyss-software --install "$PASS_PACKAGES" >/dev/null 2>&1 ;;
         pass-setup)    term "Passwords" sh -c "'$SELF' --pass-setup; echo; printf 'Press Enter to close '; read _" ;;
-        pass-copy)     pass_pick ;;
-        pass-type)     pass_pick --type ;;
-        pass-add)      name=$(pass_name 'New password name (e.g. web/github)') &&
-                           term_hold "Passwords" "pass insert -- '$name'" ;;
-        pass-generate) name=$(pass_name 'Name for a generated password') &&
-                           term_hold "Passwords" "pass generate -c -- '$name' 20" ;;
+        pass-add)      pass_add ;;
+        pass-search)   name=$(pass_pick 'Search logins') && pass_detail "$name" ;;
+        pass-autofill) if bp_native >/dev/null; then
+                           term "Browser autofill" sh -c "'$SELF' --autofill-setup; echo; printf 'Press Enter to close '; read _"
+                       else
+                           setsid -f abyss-software --install "$PASS_PACKAGES" >/dev/null 2>&1
+                       fi ;;
+        pass-copy)     name=$(pass_pick 'Copy password') && pass_do copy "$name" ;;
+        pass-user)     name=$(pass_pick 'Copy username') && pass_do user "$name" ;;
+        pass-otp)      name=$(pass_pick 'Copy one-time code') && pass_do otp "$name" ;;
+        pass-type)     name=$(pass_pick 'Type password') && pass_do type "$name" ;;
+        pass-edit)     name=$(pass_pick 'Edit login') && pass_detail "$name" edit ;;
+        pass-delete)   name=$(pass_pick 'Delete login') && pass_do delete "$name" ;;
+        pass-generate) pw=$(pass_gen) && clip "$pw" "$CLIP_TIME" &&
+                           inform "Passwords" "A new strong password is in the clipboard (cleared in $CLIP_TIME s)" ;;
         pass-term)     term "Passwords" sh -c 'pass; exec "${SHELL:-sh}"' ;;
         kbd-next)      kbd_next ;;
         kbd-set:*)     kbd_set "${1#kbd-set:}" ;;
@@ -578,6 +996,7 @@ case ${1:-} in
         click "$module" "${3:-${BLOCK_BUTTON:-1}}" ;;
     --refresh)    refresh ;;
     --pass-setup) pass_setup ;;
+    --autofill-setup) autofill_setup ;;
     --blocks)     for n in 1 2 3 4 5 6 7 8 9 10; do printf '%s %s\n' "$n" "$(module_of "$n")"; done ;;
     ''|-h|--help) sed -n '3,/^# =====/p' "$SELF" | sed '$d; s/^# \{0,1\}//' ;;
     *)            click "$1" "${2:-${BLOCK_BUTTON:-1}}" ;;

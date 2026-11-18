@@ -3,6 +3,7 @@
 bluez
 bridge-utils
 brightnessctl
+browserpass
 chromium
 docker
 docker-buildx
@@ -16,6 +17,7 @@ libvirt
 maim
 mpv
 pass
+pass-otp
 pavucontrol
 pinentry-gtk
 pipewire
