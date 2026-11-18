@@ -467,8 +467,8 @@ act() {
                       elif has htop; then term "System monitor" htop
                       else term "System monitor" top; fi ;;
         info)         term_hold "About this computer" 'fastfetch 2>/dev/null || uname -a' ;;
-        update)       p=$(priv)
-                      term_hold "Abyss System Update" "$p xbps-install -Su && $p xbps-remove -Oo && echo 'System is up to date.'" ;;
+        update)       p=$(priv)   # one privileged shell: the password is asked once
+                      term_hold "Abyss System Update" "$p sh -c 'xbps-install -Su && xbps-remove -Oo' && echo 'System is up to date.'" ;;
         disks)        term_hold "Disks" 'df -h -x tmpfs -x devtmpfs -x efivarfs; echo; lsblk -o NAME,SIZE,FSTYPE,MOUNTPOINTS' ;;
         services)     term_hold "Services" 'sv status /var/service/* 2>/dev/null | sed "s|/var/service/||"' ;;
         power-diag)   term_hold "Power diagnostics" 'abyss-power diagnose' ;;

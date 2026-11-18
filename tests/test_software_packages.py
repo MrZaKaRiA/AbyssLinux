@@ -515,6 +515,79 @@ class ShellHelpersTest(StubbedTest):
         self.shell('upgrade; install maim')
         self.assertEqual(self.log('xbps.log'), ['-S', '-u', '-S', 'maim'])
 
+    # One password per helper call: doas remembers a password only for later
+    # calls from the same parent process, so the whole step runs under one doas.
+    def count_privilege_calls(self):
+        for tool in ('doas', 'sudo'):
+            self.stub(tool, f'echo "{tool} $*" >> "$HOME/priv.log"; exec "$@"')
+        self.stub('id', '[ "$1" = -u ] && { echo "${FAKE_UID:-1000}"; exit; }; echo "uid=${FAKE_UID:-1000}"')
+
+    def test_each_helper_asks_for_the_password_once(self):
+        self.count_privilege_calls()
+        self.write('sync-fail', '1')   # a retried sync stays inside the same root process
+        self.write('sync-error', "ERROR: [reposync] failed to fetch file `x': Transient resolver failure\n")
+        for call, xbps in (('update', ['-S', '-S']), ('upgrade', ['-S', '-u']),
+                           ('install maim', ['-S', 'maim']), ('remove maim', ['remove -R maim']),
+                           ('cleanup', ['remove -Oo'])):
+            with self.subTest(call):
+                for name in ('priv.log', 'xbps.log'):
+                    (self.root / name).unlink(missing_ok=True)
+                out = self.shell(call)
+                self.assertEqual(self.status, 0, out)
+                self.assertEqual(len(self.log('priv.log')), 1, self.log('priv.log'))
+                self.assertEqual(self.log('xbps.log'), xbps)
+                self.write('sync-fail', '0')
+        self.assertEqual(list(self.root.glob('abyss-elevate.*')), [])
+
+    def test_root_runs_the_helpers_without_a_privilege_tool(self):
+        self.count_privilege_calls()
+        self.env['FAKE_UID'] = '0'
+        out = self.shell('update; upgrade; install maim; remove maim; cleanup')
+        self.assertEqual(self.log('priv.log'), [])
+        self.assertEqual(self.log('xbps.log'), ['-S', '-S', '-u', '-S', 'maim', 'remove -R maim', 'remove -Oo'])
+        self.assertIn('System is up to date.', out)
+
+    def test_refused_password_is_explained_without_retrying(self):
+        self.stub('doas', 'echo "doas: Authentication failed" >&2; exit 1')
+        self.stub('id', '[ "$1" = -u ] && { echo 1000; exit; }; echo uid=1000')
+        for call in ('update', 'upgrade', 'install maim'):
+            with self.subTest(call):
+                out = self.shell(call)
+                self.assertEqual(self.status, 1, out)
+                self.assertIn('needs your password', out)
+                self.assertNotIn('trying again', out)
+                self.assertEqual(self.log('xbps.log'), [])
+        self.assertEqual(list(self.root.glob('abyss-elevate.*')), [])
+
+    def test_update_and_upgrade_say_what_happened(self):
+        out = self.shell('update')
+        self.assertIn('Package lists updated.', out)
+        out = self.shell('upgrade')
+        self.assertEqual(self.status, 0, out)
+        self.assertIn('System is up to date.', out)
+        self.assertNotIn('Updated', out)
+
+    def test_upgrade_lists_the_updated_packages(self):
+        # xbps-query -l reads full pkgvers from $HOME/pkgdb; the upgrade bumps foo
+        # and pulls in a new dependency.
+        self.write('pkgdb', 'foo-1.0_1\nbar-2.0_1\n')
+        self.stub('xbps-query', '[ "$1" = -l ] && while read -r p; do echo "ii $p desc"; done < "$HOME/pkgdb"; exit 0')
+        self.stub('xbps-install', 'printf \'%s\\n\' "$*" >> "$HOME/xbps.log"\n'
+                                  'case " $* " in *" -u "*) printf \'foo-1.1_1\\nbar-2.0_1\\nlibnew-1_1\\n\' > "$HOME/pkgdb" ;; esac')
+        out = self.shell('upgrade')
+        self.assertEqual(self.status, 0, out)
+        self.assertIn('Updated 2 package(s):\n  foo-1.1_1\n  libnew-1_1 (new)\n', out)
+        self.assertNotIn('up to date', out)
+
+    def test_declined_or_failed_upgrade_is_reported(self):
+        self.stub('xbps-install', 'case " $* " in *" -u "*) echo Aborting!; exit 0 ;; esac')
+        self.assertIn('Nothing was updated.', self.shell('upgrade'))
+        self.stub('xbps-install', 'case " $* " in *" -u "*) exit 19 ;; esac')
+        out = self.shell('upgrade')
+        self.assertEqual(self.status, 19, out)
+        self.assertIn('The upgrade did not finish (xbps-install exit 19)', out)
+        self.assertNotIn('up to date', out)
+
 
 if __name__ == '__main__':
     unittest.main()

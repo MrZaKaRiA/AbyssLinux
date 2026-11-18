@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+* `update`, `upgrade` and `install` ask for your password only once: each runs as one doas/sudo step, because doas only remembers a password for commands started from the same process. `upgrade` now always says what happened (the updated packages, "System is up to date.", or why it failed), and `update` confirms "Package lists updated." System Update in the menu also asks only once.
 * **Login screen redesigned:** a centred translucent card with your name, the password field and a purple Log In button; clock, keyboard layout, accessibility and power menu on a transparent top line; the sharp 5120x2160 "Abyss Orbit" picture, zoomed to fill 16:9, 16:10 and 21:9 screens without stretching. It is sized relative to the text, icons included, so it looks the same at 100% and 200%, and it uses the screen-based scale (100% on a normal monitor in a Mac VM).
 * Updating abyss-theme hands the login screen back to the package on older installs: unedited copies of the old Abyss greeter config and greeter CSS are replaced; edited ones are kept. abyss-theme now depends on font-inter.
 * **Display scale follows the screen:** about 100% for a VM window on a normal monitor (for example a 34" 3440x1440 ultrawide), 200% only for Retina-sized windows, and real monitors are scaled by their actual pixel density. Previously every Mac VM got 200%.
