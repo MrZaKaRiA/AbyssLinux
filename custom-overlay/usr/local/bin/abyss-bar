@@ -1,0 +1,584 @@
+#!/bin/sh
+# ==============================================================================
+# abyss-bar - what a click on the status bar does (the macOS menu bar extras)
+#
+# dwm-statusbar starts each block of the status with a marker byte; dwm's
+# statuscmd patch finds the block under the pointer and runs
+#
+#   abyss-bar --click BLOCK BUTTON     (BUTTON is also in $BLOCK_BUTTON)
+#
+#   block  module      left click (1)                  middle (2)    scroll (4/5)
+#   1      network     connection, Wi-Fi networks, settings
+#   2      docker      containers: logs, stop, start, shell; lazydocker
+#   3      passwords   pass: copy, type, add, generate (or install it)
+#   4      keyboard    layouts, switch, keyboard settings  switch
+#   5      sound       volume, mute, mixer                 mute          volume
+#   6      battery     charge and power diagnostics
+#   7, 8   cpu, memory system monitor
+#   9      clock       calendar, time zone, clock sync
+#   10     menu        the Abyss menu                      terminal
+#
+# A right-click anywhere on the status opens the Abyss menu (dwm does that).
+# Menus open under the pointer with xmenu (else, or with ABYSS_BAR_MENU=dmenu,
+# as a dmenu list).
+#
+#   abyss-bar MODULE [BUTTON]   the same, by name
+#   abyss-bar --refresh         make dwm-statusbar update now
+#   abyss-bar --blocks          print the block numbers
+# ==============================================================================
+
+case ":$PATH:" in *:/usr/local/bin:*) ;; *) PATH="/usr/local/bin:$PATH" ;; esac
+FONT="JetBrainsMono Nerd Font:size=10"
+NB="#0d0b18" NF="#f3e8ff" SB="#a855f7" SF="#090514"
+RUN="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/abyss-bar"
+TAB='	'
+
+# This script by absolute path, for the helpers it runs in a terminal.
+SELF=$0
+case $SELF in */*) ;; *) SELF=$(command -v "$SELF" 2>/dev/null || printf '%s' "$SELF") ;; esac
+
+has() { command -v "$1" >/dev/null 2>&1; }
+
+dmenu_theme() { dmenu -i -c -l 16 -fn "$FONT" -nb "$NB" -nf "$NF" -sb "$SB" -sf "$SF" "$@"; }
+
+notify() {
+    if has notify-send && notify-send -a "Abyss" "$1" "${2:-}"; then return; fi
+    if [ -n "${DISPLAY:-}" ] && has dmenu; then
+        printf '%s\n' "${2:-$1}" | dmenu_theme -p "$1" >/dev/null
+    else
+        echo "$1 ${2:-}" >&2
+    fi
+}
+
+# Routine news (connected, copied, stopped): a notification when there is a
+# notification tool, nothing otherwise (the bar shows the result anyway).
+inform() { has notify-send && notify-send -a "Abyss" "$1" "${2:-}" 2>/dev/null; return 0; }
+
+term() {  # term "Title" command...
+    t=$1; shift
+    if has st; then setsid -f st -t "$t" -e "$@" >/dev/null 2>&1
+    elif has alacritty; then setsid -f alacritty -T "$t" -e "$@" >/dev/null 2>&1
+    else notify "No terminal found" "Install st or alacritty"; fi
+}
+
+# Run a shell snippet in a terminal and keep the window open afterwards.
+term_hold() {  # term_hold "Title" "shell code"
+    term "$1" sh -c "$2; echo; printf 'Press Enter to close '; read _"
+}
+
+center() { setsid -f abyss-control-center "$@" >/dev/null 2>&1; }
+
+# Ask dwm-statusbar to update now (only that process: SIGUSR1 would end
+# anything else).
+refresh() {
+    pid=$(cat "$RUN/pid" 2>/dev/null) || return 0
+    case $pid in ''|*[!0-9]*) return 0 ;; esac
+    grep -qa dwm-statusbar "/proc/$pid/cmdline" 2>/dev/null && kill -USR1 "$pid" 2>/dev/null
+    return 0
+}
+
+# Keep equal to the markers in dwm-statusbar.
+module_of() {
+    case $1 in
+        1) echo network ;;  2) echo docker ;;  3) echo passwords ;; 4) echo keyboard ;;
+        5) echo sound ;;    6) echo battery ;; 7) echo cpu ;;       8) echo memory ;;
+        9) echo clock ;;    10) echo menu ;;   *) return 1 ;;
+    esac
+}
+
+# Where a menu opens: like a macOS menu, just under the bar where it was
+# clicked, moved left when it would not fit on the pointer's monitor (xmenu
+# does not keep a menu placed with -p on the screen). Sizes are at 96 dpi,
+# scaled by Xft.dpi; 8 px per character of the monospace font.
+menu_pos() {  # menu_pos < tree; prints "-p XxY" or nothing
+    X= Y=
+    has xdotool && eval "$(xdotool getmouselocation --shell 2>/dev/null | grep -E '^[XY]=[0-9]+$')"
+    [ -n "$X" ] && [ -n "$Y" ] || return 0
+    dpi=$(xrdb -query 2>/dev/null | awk '$1 == "Xft.dpi:" { print int($2); exit }')
+    [ "${dpi:-0}" -ge 48 ] 2>/dev/null || dpi=96
+    w=$(LC_ALL=C awk -F'\t' -v dpi="$dpi" '
+        /^[^\t]/ { s = $1; gsub(/[\200-\277]/, "", s); if (length(s) > max) max = length(s) }
+        END { w = int((max * 8 + 56) * dpi / 96); min = int(260 * dpi / 96); print (w > min ? w : min) }')
+    # monitor lines look like " 0: +*Virtual-1 1920/508x1080/286+0+0  Virtual-1"
+    geo=$(xrandr --listactivemonitors 2>/dev/null | awk -v px="$X" -v py="$Y" '
+        NR > 1 && split($3, g, /[\/x+]/) == 6 && px >= g[5] && px < g[5] + g[1] && py >= g[6] && py < g[6] + g[3] {
+            print g[1], g[5], g[6]; exit }')
+    # shellcheck disable=SC2086
+    set -- $geo
+    [ $# -eq 3 ] || return 0
+    x=$(( X - 12 * dpi / 96 ))
+    [ $(( x + w )) -le $(( $2 + $1 - 4 )) ] || x=$(( $2 + $1 - w - 4 ))
+    [ "$x" -ge "$2" ] || x=$2
+    printf -- '-p %dx%d\n' "$x" $(( $3 + 26 * dpi / 96 ))
+}
+
+# The menu read from stdin: "label<TAB>action" rows, TAB-indented submenus,
+# an empty row is a separator, the action "-" marks a row that only informs.
+# Prints the chosen action. ABYSS_BAR_MENU=dmenu prefers dmenu lists.
+menu() {  # menu PROMPT
+    if has xmenu && [ "${ABYSS_BAR_MENU:-}" != dmenu ]; then
+        tree=$(cat)
+        # shellcheck disable=SC2046
+        printf '%s\n' "$tree" | xmenu $(printf '%s\n' "$tree" | menu_pos)
+    elif has dmenu; then
+        rows=$(awk -F'\t' '
+            { depth = 0; while (substr($0, depth + 1, 1) == "\t") depth++ }
+            {
+                n = split($0, f, "\t"); label = ""; action = ""
+                for (i = 1; i <= n; i++) {
+                    if (f[i] == "") continue
+                    if (label == "") label = f[i]; else action = f[i]
+                }
+                if (label == "") next
+                path[depth] = label
+                if (action == "") next                    # submenu header
+                out = ""
+                for (i = 0; i < depth; i++) out = out path[i] " › "
+                print out label "\t" action
+            }')
+        sel=$(printf '%s\n' "$rows" | cut -f1 | dmenu_theme -p "$1") || return 0
+        printf '%s\n' "$rows" | awk -F'\t' -v s="$sel" '$1 == s { print $2; exit }'
+    else
+        notify "Abyss" "Install xmenu or dmenu to use the status bar menus"
+    fi
+}
+
+# ---- network -----------------------------------------------------------------
+# nmcli -t separates fields with ':' and writes a ':' inside a value as '\:'.
+NM_UNESCAPE='{ gsub(/\\\\/, "\002"); gsub(/\\:/, "\001"); n = split($0, f, ":")
+               for (i = 1; i <= n; i++) { gsub(/\001/, ":", f[i]); gsub(/\002/, "\\", f[i]) } }'
+
+wifi_device() { nmcli -t -f TYPE device 2>/dev/null | grep -qx wifi; }
+
+network_menu() {
+    if ! has nmcli; then
+        printf '󰤮  NetworkManager is not installed\t-\n\n'
+        printf '󰒓  Network settings…\tcc:net-tui\n'
+        return
+    fi
+    # the first connected Wi-Fi or wired device: DEVICE TYPE CONNECTION
+    active=$(nmcli -t -f DEVICE,TYPE,STATE,CONNECTION device 2>/dev/null | awk "$NM_UNESCAPE"'
+        f[3] ~ /^connected/ && (f[2] == "wifi" || f[2] == "ethernet") { print f[1] "\t" f[2] "\t" f[4]; exit }')
+    dev=$(printf '%s' "$active" | cut -f1)
+    kind=$(printf '%s' "$active" | cut -f2)
+    name=$(printf '%s' "$active" | cut -f3)
+    case $kind in
+        wifi)
+            signal=$(nmcli -t -f IN-USE,SIGNAL device wifi list --rescan no 2>/dev/null | awk -F: '$1 == "*" { print $2; exit }')
+            printf '󰤨  Wi-Fi: %s%s\t-\n' "$name" "${signal:+  ($signal%)}" ;;
+        ethernet)
+            printf '󰈀  Wired: %s\t-\n' "$name" ;;
+        *)
+            printf '󰤮  Not connected\t-\n' ;;
+    esac
+    if [ -n "$dev" ]; then
+        ip=$(ip -4 -o addr show dev "$dev" 2>/dev/null | awk '{ print $4; exit }')
+        printf '    %s%s\t-\n' "$dev" "${ip:+ · $ip}"
+        rates=$(cat "$RUN/rates" 2>/dev/null)
+        [ -n "$rates" ] && printf '    ↓ %s/s  ↑ %s/s\t-\n' "${rates% *}" "${rates#* }"
+    fi
+    echo
+    if wifi_device; then
+        if [ "$(nmcli radio wifi 2>/dev/null)" = disabled ]; then
+            printf '󰖩  Turn Wi-Fi on\twifi-on\n'
+        else
+            printf '󰤨  Wi-Fi networks…\twifi-list\n'
+            printf '󰖪  Turn Wi-Fi off\twifi-off\n'
+        fi
+    fi
+    printf '󰒓  Network settings…\tcc:net-tui\n'
+    printf '󰋼  Connection details…\tnet-details\n'
+}
+
+# Wi-Fi networks, strongest first, one row per name: "label<TAB>ssid<TAB>security"
+wifi_networks() {
+    nmcli -t -f IN-USE,SIGNAL,SECURITY,SSID device wifi list --rescan auto 2>/dev/null | awk "$NM_UNESCAPE"'
+        f[4] == "" || f[4] == "--" { next }
+        !(f[4] in sig) || f[2] + 0 > sig[f[4]] { sig[f[4]] = f[2] + 0; sec[f[4]] = f[3]; use[f[4]] = (f[1] == "*") }
+        END {
+            for (s in sig) {
+                q = sig[s]; bars = q >= 75 ? "󰤨" : q >= 50 ? "󰤥" : q >= 25 ? "󰤢" : "󰤟"
+                lock = (sec[s] == "" || sec[s] == "--") ? "" : "  󰌾"
+                printf "%03d\t%s  %s  %d%%%s%s\t%s\t%s\n", 999 - q, bars, s, q, lock, use[s] ? "  (connected)" : "", s, sec[s]
+            }
+        }' | sort | cut -f2-
+}
+
+wifi_list() {
+    has dmenu || { term "Network" nmtui; return; }
+    nets=$(wifi_networks)
+    [ -n "$nets" ] || { notify "Wi-Fi" "No Wi-Fi networks found"; return; }
+    sel=$(printf '%s\n' "$nets" | cut -f1 | dmenu_theme -p 'Wi-Fi network') || return 0
+    line=$(printf '%s\n' "$nets" | awk -F'\t' -v s="$sel" '$1 == s { print; exit }')
+    [ -n "$line" ] || return 0
+    wifi_connect "$(printf '%s' "$line" | cut -f2)" "$(printf '%s' "$line" | cut -f3)"
+}
+
+wifi_connect() {  # wifi_connect SSID SECURITY
+    if nmcli -t -f NAME connection show 2>/dev/null | grep -qxF -- "$1"; then
+        out=$(nmcli connection up id "$1" 2>&1)
+    elif [ -z "$2" ] || [ "$2" = -- ]; then
+        out=$(nmcli device wifi connect "$1" 2>&1)
+    else
+        # Abyss's dmenu hides what is typed with -P
+        pw=$(printf '' | dmenu_theme -P -p "Password for $1") || return 0
+        [ -n "$pw" ] || return 0
+        out=$(nmcli device wifi connect "$1" password "$pw" 2>&1)
+    fi
+    status=$?
+    refresh
+    if [ "$status" -eq 0 ]; then inform "Wi-Fi" "Connected to $1"
+    else notify "Wi-Fi: could not connect to $1" "$(printf '%s' "$out" | tail -n 1)"; fi
+}
+
+# ---- docker ------------------------------------------------------------------
+docker_sock() { s=${DOCKER_HOST:-unix:///var/run/docker.sock}; printf '%s\n' "${s#unix://}"; }
+
+docker_menu() {
+    sock=$(docker_sock)
+    if [ ! -w "$sock" ]; then
+        printf '󰡨  Docker is running\t-\n'
+        printf '    Only members of the docker group can use it\t-\n\n'
+        printf '󰀉  Let me use Docker (join the docker group)…\tdk-group\n'
+        printf '󰋼  Docker service status\tdk-status\n'
+        return
+    fi
+    list=$(docker ps -a --format '{{.ID}}\t{{.Names}}\t{{.Image}}\t{{.State}}\t{{.Status}}' 2>/dev/null)
+    running=$(printf '%s\n' "$list" | awk -F'\t' '$4 == "running"' | grep -c .)
+    printf '󰡨  Docker · %s running\t-\n' "$running"
+    printf '%s\n' "$list" | awk -F'\t' '$4 == "running" {
+        printf "󰆧  %s  (%s) · %s\n", $2, $3, $5
+        printf "\t󰦪  Logs\tdk-logs:%s\n\t󰆍  Shell\tdk-shell:%s\n\t󰜉  Restart\tdk-restart:%s\n\t󰓛  Stop\tdk-stop:%s\n", $1, $1, $1, $1
+    }'
+    if printf '%s\n' "$list" | awk -F'\t' '$4 != "running" && $1 != "" { found = 1 } END { exit !found }'; then
+        printf '󰡨  Stopped containers\n'
+        printf '%s\n' "$list" | awk -F'\t' '$4 != "running" && $1 != "" {
+            printf "\t󰆧  %s  (%s)\n", $2, $3
+            printf "\t\t󰐊  Start\tdk-start:%s\n\t\t󰦪  Logs\tdk-logs:%s\n", $1, $1
+        }'
+    fi
+    echo
+    has lazydocker && printf '󰡨  Open lazydocker\tlazydocker\n'
+    printf '󰋼  Docker service status\tdk-status\n'
+}
+
+docker_act() {  # docker_act VERB ID
+    case $2 in ''|*[!0-9a-f]*) return 1 ;; esac
+    case $1 in
+        logs)  term "Logs $2" docker logs -f --tail 200 "$2" ;;
+        shell) term "Shell $2" sh -c "docker exec -it '$2' bash 2>/dev/null || docker exec -it '$2' sh" ;;
+        *)     name=$(docker ps -a --filter "id=$2" --format '{{.Names}}' 2>/dev/null)
+               out=$(docker "$1" "$2" 2>&1); status=$?
+               refresh
+               if [ "$status" -eq 0 ]; then inform "Docker" "$1: ${name:-$2}"
+               else notify "Docker: $1 ${name:-$2} failed" "$(printf '%s' "$out" | tail -n 1)"; fi ;;
+    esac
+}
+
+# ---- passwords ---------------------------------------------------------------
+# The macOS Passwords menu is pass on Abyss: one GnuPG-encrypted file per
+# password in ~/.password-store, picked with dmenu (passmenu).
+PASS_PACKAGES='pass pinentry-gtk xclip'
+pass_store() { printf '%s\n' "${PASSWORD_STORE_DIR:-$HOME/.password-store}"; }
+
+passwords_menu() {
+    if ! has pass; then
+        printf '󰌋  Passwords\t-\n'
+        printf '    Keep your passwords encrypted with pass\t-\n\n'
+        printf '󰏖  Install Password manager (pass)…\tpass-install\n'
+        return
+    fi
+    store=$(pass_store)
+    if [ ! -f "$store/.gpg-id" ]; then
+        printf '󰌋  Passwords: not set up yet\t-\n\n'
+        printf '󰒓  Set up the password store…\tpass-setup\n'
+        return
+    fi
+    n=$(find "$store" -name '*.gpg' 2>/dev/null | grep -c .)
+    printf '󰌋  Passwords · %s saved\t-\n\n' "$n"
+    printf '󰆏  Copy a password…\tpass-copy\n'
+    has xdotool && printf '󰌌  Type a password…\tpass-type\n'
+    printf '󰐕  Add a password…\tpass-add\n'
+    printf '󰒃  Generate a password…\tpass-generate\n'
+    printf '󰆍  Open the store in a terminal\tpass-term\n'
+}
+
+pass_pick() {  # pass_pick [--type]: passmenu, or the same with dmenu
+    if has passmenu; then
+        passmenu "$@" -i -c -l 16 -fn "$FONT" -nb "$NB" -nf "$NF" -sb "$SB" -sf "$SF"
+        return
+    fi
+    store=$(pass_store)
+    name=$(cd "$store" 2>/dev/null && find . -name '*.gpg' | sed 's|^\./||; s|\.gpg$||' | sort |
+        dmenu_theme -p 'Password') || return 0
+    [ -n "$name" ] || return 0
+    if [ "${1:-}" = --type ]; then
+        pass show -- "$name" | head -n 1 | tr -d '\n' | xdotool type --clearmodifiers --file -
+    else
+        pass show -c -- "$name" >/dev/null 2>&1 && inform "Passwords" "Copied $name (cleared in 45 s)"
+    fi
+}
+
+pass_name() {  # PROMPT -> a store name on stdout
+    name=$(printf '' | dmenu_theme -p "$1") || return 1
+    case $name in ''|-*|*..*|*[!A-Za-z0-9._@/+\ -]*) return 1 ;; esac
+    printf '%s\n' "$name"
+}
+
+# Runs in a terminal: a GnuPG key (created when there is none), then pass init.
+pass_setup() {
+    echo 'pass keeps each password in a file encrypted with your GnuPG key.'
+    echo
+    if [ -x /usr/bin/pinentry-gtk-2 ] && ! grep -qs '^pinentry-program' "$HOME/.gnupg/gpg-agent.conf"; then
+        # gpg asks for the passphrase in a window, also when dmenu needs it
+        mkdir -p -m 700 "$HOME/.gnupg" &&
+            echo 'pinentry-program /usr/bin/pinentry-gtk-2' >> "$HOME/.gnupg/gpg-agent.conf"
+        gpgconf --kill gpg-agent 2>/dev/null
+    fi
+    key=$(gpg --list-secret-keys --with-colons 2>/dev/null | awk -F: '$1 == "fpr" { print $10; exit }')
+    if [ -z "$key" ]; then
+        echo 'First a GnuPG key: your name and e-mail label it, a passphrase protects it.'
+        printf 'Your name: '; read -r name
+        printf 'Your e-mail (optional): '; read -r mail
+        [ -n "$name" ] || name=$(id -un)
+        gpg --quick-generate-key "$name${mail:+ <$mail>}" default default never || return 1
+        key=$(gpg --list-secret-keys --with-colons 2>/dev/null | awk -F: '$1 == "fpr" { print $10; exit }')
+    fi
+    [ -n "$key" ] || { echo 'No GnuPG key, nothing was set up.'; return 1; }
+    pass init "$key" && echo && echo 'Done: click 󰌋 on the bar to add and copy passwords.'
+}
+
+# ---- keyboard ----------------------------------------------------------------
+kbd_layouts() { setxkbmap -query 2>/dev/null | awk '$1 == "layout:" { gsub(/,/, " ", $2); print $2 }'; }
+
+# The index of the active layout: from xkb-switch, else 0, or 1 while the
+# Scroll Lock LED is on (abyss-keyboard sets grp_led:scroll: that LED shows
+# a layout other than the first).
+kbd_group() {
+    if has xkb-switch; then
+        now=$(xkb-switch -p 2>/dev/null) i=0
+        for l in $(kbd_layouts); do
+            [ "$l" = "${now%%(*}" ] && { echo "$i"; return; }
+            i=$((i + 1))
+        done
+    fi
+    setxkbmap -query 2>/dev/null | grep -q 'grp_led:scroll' || { echo 0; return; }
+    mask=$(xset -q 2>/dev/null | sed -n 's/.*LED mask: *\([0-9a-fA-F]*\).*/\1/p')
+    [ -n "$mask" ] || { echo 0; return; }
+    if [ $(( 0x$mask & 4 )) -ne 0 ]; then echo 1; else echo 0; fi
+}
+
+kbd_name() {
+    case $1 in
+        us) echo 'English (US)' ;;  gb) echo 'English (UK)' ;;  ara) echo 'Arabic' ;;
+        fr) echo 'French' ;;        de) echo 'German' ;;        es) echo 'Spanish' ;;
+        it) echo 'Italian' ;;       ru) echo 'Russian' ;;       tr) echo 'Turkish' ;;
+        ir) echo 'Persian' ;;       il) echo 'Hebrew' ;;        *) echo "$1" ;;
+    esac
+}
+
+# Same as Alt+Shift: lock the next layout group. Synthetic key presses
+# (xdotool) do not reach XKB's group switch, xkb-switch sets it directly.
+kbd_next() {
+    if has xkb-switch; then xkb-switch -n; refresh
+    else notify "Keyboard" "Press Alt+Shift to switch the layout"; return 1; fi
+}
+
+kbd_set() {  # kbd_set INDEX
+    count=$(kbd_layouts | wc -w)
+    now=$(kbd_group)
+    [ "$1" -lt "$count" ] 2>/dev/null || return 0
+    steps=$(( ($1 - now + count) % count ))
+    while [ "$steps" -gt 0 ]; do kbd_next || return 0; steps=$((steps - 1)); done
+}
+
+keyboard_menu() {
+    now=$(kbd_group) i=0
+    for l in $(kbd_layouts); do
+        [ "$i" -eq "$now" ] && printf '󰌌  Keyboard: %s\t-\n' "$(kbd_name "$l")"
+        i=$((i + 1))
+    done
+    i=0
+    for l in $(kbd_layouts); do
+        if [ "$i" -eq "$now" ]; then mark='󰐾'; else mark='󰐽'; fi
+        printf '%s  %s\tkbd-set:%s\n' "$mark" "$(kbd_name "$l")" "$i"
+        i=$((i + 1))
+    done
+    printf '󰘳  Switch layout (Alt+Shift)\tkbd-next\n\n'
+    printf '󰒓  Keyboard settings\n'
+    printf '\t󰌌  Layouts (first-run setup)…\tcc:setup\n'
+    printf '\t󰘳  %s\tcc:kbd-swap\n' "$(abyss-keyboard --swap-label 2>/dev/null || printf 'Swap Left Alt ↔ Super (Win/Cmd)')"
+    printf '\t󰌓  Test what keys send\tcc:kbd-test\n'
+    printf '\t󰋖  Current layout and modifiers\tcc:kbd-status\n'
+    printf '\t󰌌  View and edit shortcuts\tcc:shortcuts\n'
+}
+
+# ---- sound -------------------------------------------------------------------
+volume() {  # volume up|down|mute
+    has wpctl || { notify "Audio is not installed" "Install PipeWire from Install software."; return; }
+    case $1 in
+        up)   wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ 5%+ ;;
+        down) wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%- ;;
+        mute) wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle ;;
+    esac
+    refresh
+}
+
+sound_menu() {
+    if ! has wpctl; then
+        printf '󰝟  No audio support\t-\n\n󰕾  Install audio support\tcc:install-audio\n'
+        return
+    fi
+    line=$(wpctl get-volume @DEFAULT_AUDIO_SINK@ 2>/dev/null)
+    pct=$(printf '%s\n' "$line" | awk '{ printf "%d", $2 * 100 + 0.5 }')
+    case $line in *MUTED*) state='muted' ;; *) state="$pct%" ;; esac
+    printf '󰕾  Volume: %s\t-\n\n' "$state"
+    printf '󰝝  Volume up 5%%\tvol-up\n'
+    printf '󰝞  Volume down 5%%\tvol-down\n'
+    printf '󰝟  Mute / unmute\tvol-mute\n\n'
+    printf '󰕾  Volume mixer…\tcc:audio-gui\n'
+    printf '󰝚  Audio devices (terminal)\tcc:audio-tui\n'
+}
+
+# ---- battery -----------------------------------------------------------------
+battery_menu() {
+    for p in /sys/class/power_supply/*; do
+        [ "$(cat "$p/type" 2>/dev/null)" = Battery ] || continue
+        cap=$(cat "$p/capacity" 2>/dev/null) state=$(cat "$p/status" 2>/dev/null)
+        printf '󰁹  Battery %s%%  ·  %s\t-\n' "$cap" "${state:-unknown}"
+        # time left from energy (µWh) and power (µW), or charge and current
+        now=$(cat "$p/energy_now" 2>/dev/null || cat "$p/charge_now" 2>/dev/null)
+        full=$(cat "$p/energy_full" 2>/dev/null || cat "$p/charge_full" 2>/dev/null)
+        rate=$(cat "$p/power_now" 2>/dev/null || cat "$p/current_now" 2>/dev/null)
+        if [ "${rate:-0}" -gt 0 ] 2>/dev/null && [ -n "$now" ] && [ -n "$full" ]; then
+            if [ "$state" = Charging ]; then m=$(( (full - now) * 60 / rate )); what='until full'
+            else m=$(( now * 60 / rate )); what='left'; fi
+            [ "$m" -gt 0 ] && [ "$m" -lt 2880 ] && printf '    %d:%02d %s\t-\n' $((m / 60)) $((m % 60)) "$what"
+        fi
+        break
+    done
+    printf '\n󰐥  Power diagnostics…\tcc:power-diag\n'
+}
+
+# ---- clock -------------------------------------------------------------------
+# This month from cal, today in brackets (same width, columns stay aligned).
+calendar() {
+    today=$(date +%-d)
+    cal 2>/dev/null | awk -v d="$today" '
+        NF == 0 { next }
+        NR > 2 {
+            for (i = 1; i <= length($0); i += 3) {
+                f = substr($0, i, 2)
+                if (f ~ /[0-9]/ && f + 0 == d) {
+                    if (substr(f, 1, 1) == " ") f = "[" substr(f, 2, 1) "]"
+                    else if (i > 1) { i--; f = "[" f "]" }
+                    else f = f "]"
+                    $0 = substr($0, 1, i - 1) f substr($0, i + length(f))
+                    break
+                }
+            }
+        }
+        { sub(/[[:space:]]+$/, ""); printf "  %s\t-\n", $0 }'
+}
+
+time_zone() {
+    tz=$(readlink /etc/localtime 2>/dev/null)
+    case $tz in */zoneinfo/*) tz=${tz##*/zoneinfo/} ;; '') tz=UTC ;; esac
+    printf '%s\n' "$tz"
+}
+
+clock_sync() {  # one line: is the clock synchronised?
+    if ! has chronyc; then echo 'Clock sync: chrony is not installed'; return; fi
+    case $(chronyc -n tracking 2>/dev/null | awk -F': *' '$1 ~ /^Leap status/ { print $2 }') in
+        Normal) echo 'Clock synchronised (chrony)' ;;
+        '')     echo 'Clock sync: chronyd is not running' ;;
+        *)      echo 'Clock not synchronised yet' ;;
+    esac
+}
+
+clock_menu() {
+    printf '󰃭  %s\t-\n' "$(date '+%A %-d %B %Y')"
+    calendar
+    echo
+    printf '󰥔  Time zone: %s (UTC%s)\t-\n' "$(time_zone)" "$(date +%:z)"
+    printf '󰔟  %s\t-\n\n' "$(clock_sync)"
+    printf '󰒓  Date & time settings\n'
+    printf '\t󰥔  Time zone…\ttz\n'
+    printf '\t󰔟  Synchronise the clock now\ttime-sync\n'
+    printf '\t󰋼  Time sources (chrony)\ttime-sources\n'
+}
+
+set_time_zone() {
+    zones=$(cd /usr/share/zoneinfo 2>/dev/null && find . -type f 2>/dev/null | sed 's|^\./||' |
+        grep -E '^([A-Z][A-Za-z_-]+/[A-Za-z0-9_+/-]+|UTC)$' | grep -vE '^(posix|right|SystemV)/' | sort)
+    [ -n "$zones" ] || { notify "Time zone" "No time zone data (install tzdata)"; return; }
+    tz=$(printf '%s\n' "$zones" | dmenu_theme -p "Time zone (now $(time_zone))") || return 0
+    printf '%s\n' "$zones" | grep -qxF -- "$tz" || return 0
+    term_hold "Time zone" "abyss-priv ln -sf '/usr/share/zoneinfo/$tz' /etc/localtime && echo 'Time zone: $tz' && date"
+}
+
+# ---- dispatch ----------------------------------------------------------------
+act() {
+    case $1 in
+        ''|-)          ;;
+        cc:*)          center "${1#cc:}" ;;
+        wifi-list)     wifi_list ;;
+        wifi-on|wifi-off) nmcli radio wifi "${1#wifi-}" && refresh ;;
+        net-details)   term_hold "Network details" 'nmcli device show 2>/dev/null || ip addr' ;;
+        dk-group)      term_hold "Docker" "abyss-priv usermod -aG docker '$(id -un)' && echo 'Done: log out and back in to use Docker.'" ;;
+        dk-status)     term_hold "Docker" 'abyss-priv sv status docker; echo; docker version 2>&1 | head -n 20' ;;
+        dk-*:*)        verb=${1%%:*}; docker_act "${verb#dk-}" "${1#*:}" ;;
+        lazydocker)    term "lazydocker" lazydocker ;;
+        pass-install)  setsid -f abyss-software --install "$PASS_PACKAGES" >/dev/null 2>&1 ;;
+        pass-setup)    term "Passwords" sh -c "'$SELF' --pass-setup; echo; printf 'Press Enter to close '; read _" ;;
+        pass-copy)     pass_pick ;;
+        pass-type)     pass_pick --type ;;
+        pass-add)      name=$(pass_name 'New password name (e.g. web/github)') &&
+                           term_hold "Passwords" "pass insert -- '$name'" ;;
+        pass-generate) name=$(pass_name 'Name for a generated password') &&
+                           term_hold "Passwords" "pass generate -c -- '$name' 20" ;;
+        pass-term)     term "Passwords" sh -c 'pass; exec "${SHELL:-sh}"' ;;
+        kbd-next)      kbd_next ;;
+        kbd-set:*)     kbd_set "${1#kbd-set:}" ;;
+        vol-up)        volume up ;;
+        vol-down)      volume down ;;
+        vol-mute)      volume mute ;;
+        tz)            set_time_zone ;;
+        time-sync)     term_hold "Clock" 'abyss-priv chronyc -a makestep; echo; chronyc tracking' ;;
+        time-sources)  term_hold "Clock" 'chronyc sources -v' ;;
+    esac
+}
+
+open_menu() {  # open_menu MODULE
+    act "$("${1}_menu" | menu "$1")"
+}
+
+click() {  # click MODULE BUTTON
+    case $2 in 3) center; return ;; esac
+    case $1 in
+        network|docker|passwords|battery|clock)
+            [ "$2" = 1 ] || [ "$2" = 2 ] && open_menu "$1" ;;
+        keyboard)
+            case $2 in 1) open_menu keyboard ;; 2|4|5) kbd_next ;; esac ;;
+        sound)
+            case $2 in 1) open_menu sound ;; 2) volume mute ;; 4) volume up ;; 5) volume down ;; esac ;;
+        cpu|memory)
+            [ "$2" = 1 ] && center monitor ;;
+        menu)
+            case $2 in 1) center ;; 2) setsid -f st >/dev/null 2>&1 ;; esac ;;
+        *)
+            echo "abyss-bar: unknown module: $1" >&2; return 2 ;;
+    esac
+    return 0
+}
+
+case ${1:-} in
+    --click)
+        module=$(module_of "${2:-}") || exit 0     # an unknown block does nothing
+        click "$module" "${3:-${BLOCK_BUTTON:-1}}" ;;
+    --refresh)    refresh ;;
+    --pass-setup) pass_setup ;;
+    --blocks)     for n in 1 2 3 4 5 6 7 8 9 10; do printf '%s %s\n' "$n" "$(module_of "$n")"; done ;;
+    ''|-h|--help) sed -n '3,/^# =====/p' "$SELF" | sed '$d; s/^# \{0,1\}//' ;;
+    *)            click "$1" "${2:-${BLOCK_BUTTON:-1}}" ;;
+esac

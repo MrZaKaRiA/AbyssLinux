@@ -127,11 +127,11 @@ The installer is Void's `void-installer` with Abyss changes: one-step automatic 
 ![Working in Abyss Linux](docs/screenshots/workflow.jpg)
 
 * **dwm**, patched with systray, status2d, vanitygaps, scratchpad, attachaside and autostart, and themed in Abyss purple `#a855f7` on `#0d0b18`.
-* **A small status bar** (`dwm-statusbar`): network type and transfer rate, battery when present, volume when audio is installed, CPU, RAM, clock, and the Menu button.
+* **A small status bar** (`dwm-statusbar`), laid out like the macOS menu bar: Wi-Fi name or wired/offline, running Docker containers, passwords (pass), keyboard layout (EN/AR), volume, battery when present, CPU, RAM, date and time, and the Menu button. Each item opens its own menu on click (`abyss-bar`): Wi-Fi networks, containers, layouts, calendar and time zone, and so on; scroll on the volume to change it.
 * **The Abyss menu.** Click **Menu** in the bar or press `Super+Esc` for a popup menu with apps, media, software, settings (display, wallpaper, sound, keyboard) and **Session** (lock, suspend, restart, shut down). **Search menu…** lets you type to find any entry.
 * **On-demand software.** The ISO contains no general-purpose apps. Install Firefox, Chrome, QEMU/virt-manager, Docker, VLC, PipeWire, VS Code, ArtCraft Launcher, Ollama, Claude Code, OpenCode, Cursor, or browse Void packages from the software window.
 * **First-run setup.** Choose keyboard layouts, enable optional Void repositories, and start optional runit services only when needed.
-* **HiDPI and displays.** Abyss sets a reasonable Xft scale from the largest connected display, remembers resolution and refresh-rate choices, and offers a left-to-right multi-monitor layout. Mixed-DPI scaling depends on Xorg's global DPI behavior.
+* **HiDPI and displays.** Abyss sizes the whole desktop for the screen it is on (physical size when the monitor reports it; in a Mac VM, 200% only for a Retina-sized window) and re-scales when the resolution changes, remembers resolution and refresh-rate choices, and offers a left-to-right multi-monitor layout. Mixed-DPI scaling depends on Xorg's global DPI behavior.
 * **OLED option.** The desktop background is true black. Display settings can blank an idle screen after ten minutes.
 * **Hardware support.** XRandR exposes modes provided by the graphics driver, including high refresh rates. Standard USB keyboards, mice, and storage use Void's kernel support; install the optional external-drive tools for graphical mounting. USB-C display output and docks remain dependent on the device, firmware, GPU, and dock.
 
@@ -230,11 +230,13 @@ Some vendor installers are supported only on particular distributions. The insta
 | `/usr/local/bin/abyss-software` | Online Void package browser and current vendor installers |
 | `/usr/local/bin/abyss-setup` | First-run keyboard, repositories, services, display settings |
 | `/usr/local/bin/abyss-display` | RandR mode, refresh, multi-monitor and OLED blanking controls |
+| `/usr/local/bin/abyss-scale` | Display scale (Xft.dpi) for the screen in use; `--explain` says why |
 | `/usr/local/bin/abyss-installer` | Opens `void-installer` as root in a big st window with the Abyss accent |
 | `/usr/local/bin/abyss-launcher` | Search installed apps and commands with dmenu |
 | `/usr/local/bin/abyss-keyboard` | Layouts, Caps→Esc, Super-on-Alt swap, `--status`, `--test` |
 | `/usr/local/bin/abyss-shortcuts` | Cheatsheet (`Super+F1`) |
 | `/usr/local/bin/dwm-statusbar` | Status text |
+| `/usr/local/bin/abyss-bar` | Status bar clicks |
 | `/usr/local/bin/dmenu-ssh` | Pick or type an SSH host |
 | `/usr/bin/void-installer` | Installer with auto-partitioning and Abyss fixes |
 | `/etc/dialogrc` | Dark installer theme |

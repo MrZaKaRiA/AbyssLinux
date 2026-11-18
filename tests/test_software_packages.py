@@ -14,6 +14,7 @@ BIN = ROOT / 'custom-overlay/usr/local/bin'
 SOFTWARE = Path(os.environ.get('ABYSS_SOFTWARE', BIN / 'abyss-software')).resolve()
 CENTER = Path(os.environ.get('ABYSS_CENTER', BIN / 'abyss-control-center')).resolve()
 SETUP = Path(os.environ.get('ABYSS_SETUP', BIN / 'abyss-setup')).resolve()
+BAR = Path(os.environ.get('ABYSS_BAR', BIN / 'abyss-bar')).resolve()
 # The shell helpers ship in abyss-desktop (AbyssLinuxPMR); found next to this
 # checkout, inside the PMR checkout itself, or through ABYSS_PROFILE.
 PROFILE = os.environ.get('ABYSS_PROFILE') or next(
@@ -70,6 +71,9 @@ def referenced_packages(arch):
     for name in re.findall(r"abyss-software --install '([^']+)'", CENTER.read_text()):
         for word in name.split():
             names[word.split('@')[0]] = 'abyss-control-center: install-audio'
+    # the status bar's passwords menu installs pass
+    for word in re.search(r"^PASS_PACKAGES='([^']+)'", BAR.read_text(), re.M).group(1).split():
+        names[word] = 'abyss-bar: passwords'
     setup = SETUP.read_text()
     names['void-repo-nonfree'] = 'abyss-setup: optional repositories'
     if arch == 'x86_64':                      # abyss-setup offers multilib on x86_64 only

@@ -1,102 +1,286 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# dwm-statusbar - status text for the dwm bar (status2d colours)
+# dwm-statusbar - status text for the dwm bar (status2d colours), laid out
+# like the macOS menu bar:
 #
-#   WiFi ↓1.2M ↑48K  BAT 86%  VOL 42%   12%  󰍛 1.8/7.7G  Tue 20 14:05  Menu
+#   󰤨 Home  󰡨 2  󰌋  󰌌 EN  󰕾 42%  󰁹 86%   12%  󰍛 1.8/7.7G  Wed 18 Nov 19:11  Menu
 #
-# ↓ ↑   real transfer speed per second of all physical interfaces (bytes moved
-#       / seconds elapsed), "offline" when there is no network
-#      CPU usage since the last update, then the CPU temperature (red from
-#       85°; hidden when the machine has no sensor, which is normal in VMs)
-# 󰍛     memory used / total        󰋊  used / size of the filesystem holding /
-# The last block is the Abyss menu button: clicking the status text
-# (or Super+Escape) runs abyss-control-center.
+# network   Wi-Fi name + signal, 󰈀 Wired, or 󰤮 offline (NetworkManager, else
+#           the default route); SHOW_RATES=1 adds the ↓ ↑ speed per second
+# docker    running containers; only while the Docker service is running
+# 󰌋         passwords (pass), what the macOS Passwords menu is on Abyss
+# keyboard  active layout: EN / AR (Alt+Shift switches); hidden with one layout
+# sound     volume (PipeWire); battery on laptops
+#          CPU usage since the last update, then the temperature (red from
+#           85°; hidden without a sensor, which is normal in VMs)
+# 󰍛         memory used / total
+# clock     day, date and time: 24-hour, or 12-hour when LC_TIME (or LC_ALL)
+#           names a locale that uses AM/PM (LANG alone keeps 24-hour)
+# Menu      the Abyss menu (abyss-control-center); Super+Escape opens it too
+#
+# Clicks: each block starts with an invisible marker byte (\x01 ...). dwm's
+# statuscmd patch finds the block under the pointer and runs
+# `abyss-bar --click BLOCK BUTTON`. Anywhere else, and a right-click anywhere,
+# opens the Abyss menu. With a dwm without that patch no markers are sent and
+# every click opens the menu, as before.
+#
+# Cost: one loop every 2 s reads /proc and /sys with shell builtins; per tick
+# it runs only wpctl, xkb-switch or xset (keyboard layout) and xsetroot when
+# the text changed.
+# Slow probes are cached: network every 10 s, Docker every 30 s, keyboard
+# layouts every minute. `abyss-bar --refresh` (SIGUSR1) updates at once.
+#
+# Settings: ~/.config/abyss/bar.conf, shell variables as below.
+#   dwm-statusbar          run (from ~/.xinitrc)
+#   dwm-statusbar --once   print one status line and exit (tests, debugging)
 # ==============================================================================
 
 set -u
 
 INTERVAL=2
-LABEL="^c#a78bfa^"      # dim purple labels
+SHOW_RATES=0          # 1: network speed next to the connection
+SHOW_CPU=1
+SHOW_MEMORY=1
+SHOW_PASSWORDS=1      # 1: always (a click offers to install pass), auto: once pass is installed, 0: never
+CLOCK_FORMAT=         # strftime format; empty: "Wed 18 Nov 19:11" (see the clock above)
+CONF="${XDG_CONFIG_HOME:-$HOME/.config}/abyss/bar.conf"
+# shellcheck disable=SC1090
+[[ -r "$CONF" ]] && . "$CONF"
+
+SYS=${ABYSS_BAR_SYS:-/sys}              # other roots for the tests
+PROC=${ABYSS_BAR_PROC:-/proc}
+SERVICES=${ABYSS_BAR_SERVICES:-/var/service}
+RUN="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/abyss-bar"
+
+LABEL="^c#a78bfa^"      # dim purple icons
 VALUE="^c#f3e8ff^"      # light values
-WARN="^c#fb7185^"       # red: offline, hot, nearly full
+WARN="^c#fb7185^"       # red: offline, hot, low battery
 MENU="^b#a855f7^^c#090514^ Menu ^d^"
 SEP="  "
+
+ONCE=
+[[ "${1:-}" == --once ]] && ONCE=1
+
+# ---- click blocks ------------------------------------------------------------
+# One marker byte per block; abyss-bar maps the same numbers back. Only a dwm
+# with the statuscmd patch hides them (and names BLOCK_BUTTON).
+statuscmd_dwm() {
+    case "${ABYSS_BAR_MARKERS:-auto}" in 1) return 0 ;; 0) return 1 ;; esac
+    local dwm
+    dwm=$(type -P dwm) || return 1
+    grep -qa BLOCK_BUTTON "$dwm" 2>/dev/null
+}
+if statuscmd_dwm; then
+    M_NET=$'\x01' M_DOCKER=$'\x02' M_PASS=$'\x03' M_KBD=$'\x04' M_SOUND=$'\x05'
+    M_BAT=$'\x06' M_CPU=$'\x07' M_MEM=$'\x08' M_CLOCK=$'\x09' M_MENU=$'\x0a'
+else
+    M_NET= M_DOCKER= M_PASS= M_KBD= M_SOUND= M_BAT= M_CPU= M_MEM= M_CLOCK= M_MENU=
+fi
 
 # ---- network -----------------------------------------------------------------
 # Physical interfaces only (they have a device/ link): skips lo, docker0,
 # veth*, virbr*, bridges and VPN tunnels so traffic is not counted twice.
-net_ifaces() {
+net_ifaces() {  # sets IFACES
     local d
-    for d in /sys/class/net/*; do
-        [[ -e "$d/device" ]] || continue
-        echo "${d##*/}"
+    IFACES=()
+    for d in "$SYS"/class/net/*; do
+        [[ -e "$d/device" ]] && IFACES+=("${d##*/}")
     done
 }
 
-net_bytes() {  # prints "rx tx" summed over physical interfaces
-    local i rx=0 tx=0 r t
-    for i in $(net_ifaces); do
-        read -r r < "/sys/class/net/$i/statistics/rx_bytes" 2>/dev/null || r=0
-        read -r t < "/sys/class/net/$i/statistics/tx_bytes" 2>/dev/null || t=0
-        rx=$(( rx + r )); tx=$(( tx + t ))
+net_bytes() {  # sets RX TX, summed over physical interfaces
+    local i r t
+    RX=0 TX=0
+    for i in "${IFACES[@]}"; do
+        r=0 t=0
+        read -r r 2>/dev/null < "$SYS/class/net/$i/statistics/rx_bytes"
+        read -r t 2>/dev/null < "$SYS/class/net/$i/statistics/tx_bytes"
+        RX=$(( RX + ${r:-0} )); TX=$(( TX + ${t:-0} ))
     done
-    echo "$rx $tx"
 }
 
-online() {
-    ip route show default 2>/dev/null | grep -q . && return 0
-    local i
-    for i in $(net_ifaces); do
-        [[ "$(cat "/sys/class/net/$i/operstate" 2>/dev/null)" == up ]] && return 0
-    done
+human_rate() {  # bytes per second -> REPLY: 0B, 512K, 1.2M, 1.1G
+    local b=$1
+    if (( b < 1024 )); then REPLY="${b}B"
+    elif (( b < 1048576 )); then REPLY="$(( b / 1024 ))K"
+    elif (( b < 1073741824 )); then REPLY="$(( b / 1048576 )).$(( b * 10 / 1048576 % 10 ))M"
+    else REPLY="$(( b / 1073741824 )).$(( b * 10 / 1073741824 % 10 ))G"; fi
+}
+
+default_iface() {  # REPLY: interface of the default IPv4 route
+    local ifc dst _
+    REPLY=
+    while read -r ifc dst _; do
+        [[ "$dst" == 00000000 ]] && { REPLY=$ifc; return 0; }
+    done 2>/dev/null < "$PROC/net/route"
     return 1
 }
 
-network_label() {
-    local iface
-    iface=$(ip route show default 2>/dev/null | awk 'NR == 1 {for (i=1;i<=NF;i++) if ($i == "dev") {print $(i+1); exit}}')
-    [ -n "$iface" ] || { printf '%s' 'offline'; return; }
-    if [ -d "/sys/class/net/$iface/wireless" ]; then printf '%s' 'WiFi'; else printf '%s' 'NET'; fi
+# NET_KIND wifi | wired | offline, NET_NAME (Wi-Fi network), NET_DEV.
+# NetworkManager knows the network name; without it the default route says
+# whether there is a connection and /sys whether it is wireless.
+net_probe() {
+    local out line dev type state name
+    NET_KIND=offline NET_NAME= NET_DEV=
+    net_ifaces
+    if type -P nmcli >/dev/null && out=$(nmcli -t -f DEVICE,TYPE,STATE,CONNECTION device 2>/dev/null); then
+        while IFS= read -r line; do
+            line=${line//\\:/$'\x1f'}            # a ':' inside a value is written '\:'
+            IFS=: read -r dev type state name <<< "$line"
+            [[ "$state" == connected* ]] || continue
+            case "$type" in
+                wifi)     NET_KIND=wifi NET_NAME=${name//$'\x1f'/:} NET_DEV=$dev; break ;;
+                ethernet) [[ "$NET_KIND" == offline ]] && NET_KIND=wired NET_DEV=$dev ;;
+            esac
+        done <<< "$out"
+        return
+    fi
+    default_iface || return
+    NET_DEV=$REPLY
+    if [[ -d "$SYS/class/net/$NET_DEV/wireless" ]]; then NET_KIND=wifi; else NET_KIND=wired; fi
 }
 
-battery() {
-    local p cap state label color
-    for p in /sys/class/power_supply/*; do
-        [ "$(cat "$p/type" 2>/dev/null)" = Battery ] || continue
-        cap=$(cat "$p/capacity" 2>/dev/null)
-        case "$cap" in ''|*[!0-9]*) continue ;; esac
-        state=$(cat "$p/status" 2>/dev/null)
+WIFI_ICONS=(󰤯 󰤟 󰤢 󰤥 󰤨)
+wifi_bars() {  # REPLY: 0-4 bars from the link quality (of 70) in /proc/net/wireless
+    local ifc st q _
+    REPLY=4
+    while read -r ifc st q _; do
+        [[ "$ifc" == "$NET_DEV:" ]] || continue
+        q=${q%.*}
+        [[ "$q" =~ ^[0-9]+$ ]] || return
+        REPLY=$(( q >= 52 ? 4 : q >= 35 ? 3 : q >= 17 ? 2 : q > 0 ? 1 : 0 ))
+        return
+    done 2>/dev/null < "$PROC/net/wireless"
+}
+
+network() {  # NET
+    local name
+    case "$NET_KIND" in
+        wifi)
+            wifi_bars
+            name=${NET_NAME:-Wi-Fi}
+            name=${name//[\^[:cntrl:]]/}            # ^ starts a status2d code
+            (( ${#name} > 16 )) && name="${name:0:15}…"
+            NET="${M_NET}${LABEL}${WIFI_ICONS[REPLY]} ${VALUE}${name}" ;;
+        wired)
+            NET="${M_NET}${LABEL}󰈀 ${VALUE}Wired" ;;
+        *)
+            NET="${M_NET}${WARN}󰤮 offline"; return ;;
+    esac
+    (( SHOW_RATES )) && NET+=" ↓${DOWN} ↑${UP}"
+}
+
+# ---- docker ------------------------------------------------------------------
+# Shown only when Docker is installed, its service enabled and its socket
+# there. Members of the docker group see how many containers run; others
+# see the icon while dockerd runs.
+docker_probe() {  # DOCKER_TEXT
+    local sock=${DOCKER_HOST:-unix:///var/run/docker.sock} out id n=0
+    DOCKER_TEXT=
+    sock=${sock#unix://}
+    [[ -S "$sock" && -e "$SERVICES/docker" ]] && type -P docker >/dev/null || return
+    if [[ -r "$sock" && -w "$sock" ]]; then
+        out=$(docker ps -q 2>/dev/null) || return        # daemon not answering
+        while read -r id; do [[ -n "$id" ]] && n=$(( n + 1 )); done <<< "$out"
+        DOCKER_TEXT="${M_DOCKER}${LABEL}󰡨 ${VALUE}${n}"
+    elif pgrep -x dockerd >/dev/null 2>&1; then
+        DOCKER_TEXT="${M_DOCKER}${LABEL}󰡨"
+    fi
+}
+
+# ---- passwords ---------------------------------------------------------------
+passwords_probe() {  # PASS_TEXT
+    PASS_TEXT=
+    case "$SHOW_PASSWORDS" in
+        0) return ;;
+        auto) type -P pass >/dev/null || return ;;
+    esac
+    PASS_TEXT="${M_PASS}${LABEL}󰌋"
+}
+
+# ---- keyboard ----------------------------------------------------------------
+# The layouts come from setxkbmap -query (every minute). The active one from
+# xkb-switch -p, else from the keyboard LEDs: abyss-keyboard sets
+# grp_led:scroll, so the Scroll Lock indicator (LED mask 4) is on while a
+# layout other than the first is active.
+kbd_probe() {  # KBD_LAYOUTS (array), KBD_LED
+    local line layouts= options=
+    KBD_LAYOUTS=() KBD_LED=
+    while IFS= read -r line; do
+        case "$line" in
+            layout:*)  layouts=${line#layout:} ;;
+            options:*) options=${line#options:} ;;
+        esac
+    done < <(setxkbmap -query 2>/dev/null)
+    layouts=${layouts//[[:space:]]/}; options=${options//[[:space:]]/}
+    [[ -n "$layouts" ]] && IFS=, read -r -a KBD_LAYOUTS <<< "$layouts"
+    [[ ",$options," == *,grp_led:scroll,* ]] && KBD_LED=1
+}
+
+kbd_short() {  # layout code -> REPLY: EN, AR, FR ...
+    case "$1" in
+        us|gb) REPLY=EN ;;
+        ara)   REPLY=AR ;;
+        *)     REPLY=${1:0:2}; REPLY=${REPLY^^} ;;
+    esac
+}
+
+keyboard() {  # KBD
+    local out mask=0 group=0
+    KBD=
+    (( ${#KBD_LAYOUTS[@]} > 1 )) || return
+    if [[ -n "$HAVE_XKBSWITCH" ]] && out=$(xkb-switch -p 2>/dev/null) && [[ -n "$out" ]]; then
+        kbd_short "${out%%(*}"
+        KBD="${M_KBD}${LABEL}󰌌 ${VALUE}${REPLY}"
+        return
+    fi
+    if [[ -n "$KBD_LED" ]] && out=$(xset -q 2>/dev/null) &&
+        [[ "$out" =~ LED\ mask:\ *([0-9a-fA-F]+) ]]; then
+        mask=$(( 16#${BASH_REMATCH[1]} ))
+        (( mask & 4 )) && group=1
+    fi
+    kbd_short "${KBD_LAYOUTS[group]}"
+    KBD="${M_KBD}${LABEL}󰌌 ${VALUE}${REPLY}"
+}
+
+# ---- sound / battery -----------------------------------------------------------
+volume() {  # VOL; empty without PipeWire
+    local line pct f icon
+    VOL=
+    [[ -n "$HAVE_WPCTL" ]] || return
+    line=$(wpctl get-volume @DEFAULT_AUDIO_SINK@ 2>/dev/null) || return
+    [[ "$line" =~ ([0-9]+)\.([0-9]+) ]] || return
+    f="${BASH_REMATCH[2]}00"
+    pct=$(( 10#${BASH_REMATCH[1]} * 100 + 10#${f:0:2} ))
+    if [[ "$line" == *MUTED* ]]; then VOL="${M_SOUND}${LABEL}󰝟 mute"; return; fi
+    if (( pct >= 67 )); then icon=󰕾; elif (( pct >= 34 )); then icon=󰖀; else icon=󰕿; fi
+    VOL="${M_SOUND}${LABEL}${icon} ${VALUE}${pct}%"
+}
+
+BAT_ICONS=(󰂎 󰁺 󰁻 󰁼 󰁽 󰁾 󰁿 󰂀 󰂁 󰂂 󰁹)
+battery() {  # BAT; empty without a battery
+    local p t cap state color icon
+    BAT=
+    for p in "$SYS"/class/power_supply/*; do
+        t=; read -r t 2>/dev/null < "$p/type"
+        [[ "$t" == Battery ]] || continue
+        cap=; read -r cap 2>/dev/null < "$p/capacity"
+        [[ "$cap" =~ ^[0-9]+$ ]] || continue
+        state=; read -r state 2>/dev/null < "$p/status"
         color=$VALUE
-        [ "$cap" -le 20 ] && color=$WARN
-        label="BAT ${cap}%"
-        case "$state" in Charging) label="BAT +${cap}%" ;; esac
-        printf '%s%s' "$color" "$label"
+        (( cap <= 20 )) && color=$WARN
+        icon=${BAT_ICONS[cap > 100 ? 10 : cap / 10]}
+        [[ "$state" == Charging ]] && icon=󰂄
+        BAT="${M_BAT}${LABEL}${icon} ${color}${cap}%"
         return
     done
 }
 
-volume() {
-    command -v wpctl >/dev/null 2>&1 || return
-    local line pct
-    line=$(wpctl get-volume @DEFAULT_AUDIO_SINK@ 2>/dev/null) || return
-    pct=$(printf '%s\n' "$line" | awk '{printf "%d", $2 * 100}')
-    case "$pct" in ''|*[!0-9]*) return ;; esac
-    case "$line" in *MUTED*) printf '%sVOL mute' "$LABEL"; return ;; esac
-    printf '%sVOL %s%%' "$VALUE" "$pct"
-}
-
-human_rate() {  # bytes per second -> 0B, 512K, 1.2M, 1.1G
-    awk -v b="$1" 'BEGIN {
-        if (b < 1024)            printf "%dB", b
-        else if (b < 1048576)    printf "%dK", b / 1024
-        else if (b < 1073741824) printf "%.1fM", b / 1048576
-        else                     printf "%.1fG", b / 1073741824
-    }'
-}
-
 # ---- cpu ---------------------------------------------------------------------
-cpu_stat() {  # prints "total idle"
-    awk '/^cpu / { print $2+$3+$4+$5+$6+$7+$8+$9, $5+$6; exit }' /proc/stat 2>/dev/null
+cpu_stat() {  # TOTAL IDLE
+    local _ u=0 n=0 s=0 i=0 w=0 q=0 sq=0 st=0
+    read -r _ u n s i w q sq st _ 2>/dev/null < "$PROC/stat"
+    TOTAL=$(( u + n + s + i + w + q + sq + st )); IDLE=$(( i + w ))
 }
 
 # Find the CPU temperature input once: known CPU hwmon drivers first,
@@ -121,36 +305,45 @@ find_cpu_temp() {
     [[ -r /sys/class/thermal/thermal_zone0/temp ]] && echo /sys/class/thermal/thermal_zone0/temp
 }
 
-cpu_temp() {
-    [[ -n "$TEMP_FILE" ]] || return
+cpu_temp() {  # TEMP
     local t
-    read -r t < "$TEMP_FILE" 2>/dev/null || return
+    TEMP=
+    [[ -n "$TEMP_FILE" ]] || return
+    read -r t 2>/dev/null < "$TEMP_FILE" || return
     [[ "$t" =~ ^[0-9]+$ ]] || return
     t=$(( t / 1000 ))
-    if (( t >= 85 )); then printf ' %s%d°' "$WARN" "$t"; else printf ' %s%d°' "$VALUE" "$t"; fi
+    if (( t >= 85 )); then TEMP=" ${WARN}${t}°"; else TEMP=" ${VALUE}${t}°"; fi
 }
 
-# ---- memory / disk -----------------------------------------------------------
-# "1.8G" "7.7G" -> "1.8/7.7G" (one unit when both match)
-pair() {
-    awk -v u="$1" -v t="$2" 'BEGIN {
-        uu = substr(u, length(u)); tu = substr(t, length(t))
-        if (uu == tu && uu ~ /[KMGTP]/) u = substr(u, 1, length(u) - 1)
-        printf "%s/%s", u, t
-    }'
+# ---- memory ------------------------------------------------------------------
+gib() {  # KiB -> REPLY: one decimal GiB
+    local t=$(( ($1 * 10 + 524288) / 1048576 ))
+    REPLY="$(( t / 10 )).$(( t % 10 ))"
 }
 
-ram() {
-    local used total
-    read -r used total < <(free -h 2>/dev/null | awk '/^Mem:/ { gsub(/i/, "", $2); gsub(/i/, "", $3); print $3, $2 }')
-    pair "$used" "$total"
+memory() {  # MEM: used / total, used = total - available (as free counts it)
+    local k v _ total=0 avail=0
+    while read -r k v _; do
+        case "$k" in
+            MemTotal:) total=$v ;;
+            MemAvailable:) avail=$v; break ;;
+        esac
+    done 2>/dev/null < "$PROC/meminfo"
+    gib $(( total - avail )); MEM=$REPLY
+    gib "$total"; MEM="$MEM/${REPLY}G"
 }
 
-ssd() {  # used/size, red from 90 %
-    local used size pct
-    read -r used size pct < <(df -h / 2>/dev/null | awk 'NR == 2 { sub(/%/, "", $5); print $3, $2, $5 }')
-    if (( ${pct:-0} >= 90 )); then printf '%s' "$WARN"; else printf '%s' "$VALUE"; fi
-    pair "$used" "$size"
+# ---- clock -------------------------------------------------------------------
+# Abyss sets LANG=en_US.UTF-8 for the language, whose clock is 12-hour; the
+# bar has always shown 24-hour time, so only an explicit LC_TIME changes it.
+clock_format() {  # CLOCK_FMT
+    if [[ -n "$CLOCK_FORMAT" ]]; then CLOCK_FMT=$CLOCK_FORMAT; return; fi
+    CLOCK_FMT='%a %-d %b %H:%M'
+    [[ -n "${LC_ALL:-}${LC_TIME:-}" ]] || return
+    case "$(locale t_fmt 2>/dev/null)" in
+        *%p*|*%r*|*%I*|*%l*) CLOCK_FMT='%a %-d %b %-I:%M %p' ;;
+        *)                   CLOCK_FMT='%a %-d %b %H:%M' ;;
+    esac
 }
 
 # ---- displays ----------------------------------------------------------------
@@ -230,50 +423,88 @@ watch_displays() {
 
 # ---- main loop ---------------------------------------------------------------
 TEMP_FILE=$(find_cpu_temp)
-read -r PREV_TOTAL PREV_IDLE <<< "$(cpu_stat)"
-read -r PREV_RX PREV_TX <<< "$(net_bytes)"
+clock_format
+net_ifaces
+cpu_stat; PREV_TOTAL=$TOTAL PREV_IDLE=$IDLE
+net_bytes; PREV_RX=$RX PREV_TX=$TX
 PREV_T=${EPOCHREALTIME/[.,]/}       # microseconds
-sleep 1
-BAT=
-BAT_TICK=0
-DISPLAY_PICKER="${XDG_RUNTIME_DIR:-$HOME/.cache}/abyss-display.pid"
-DISPLAY_JOB=; DISPLAY_PENDING=; DISPLAY_XR=; DISPLAY_TICK=0; DISPLAY_VIRTUAL=
-DISPLAY_BUDGET=4; DISPLAY_REFILL=0
-for f in /sys/class/drm/card*-Virtual-*; do [[ -e "$f" ]] && DISPLAY_VIRTUAL=1; done
-display_state
-[[ -n "$DISPLAY_VIRTUAL" ]] && display_preferred
-DISPLAY_SEEN="$DISPLAY_SYS$DISPLAY_XR"
+HAVE_WPCTL= HAVE_XKBSWITCH= LAST= TICK=0 REFRESH=0 SLEEPER=
+
+if [[ -z "$ONCE" ]]; then
+    sleep 1
+    DISPLAY_PICKER="${XDG_RUNTIME_DIR:-$HOME/.cache}/abyss-display.pid"
+    DISPLAY_JOB=; DISPLAY_PENDING=; DISPLAY_XR=; DISPLAY_TICK=0; DISPLAY_VIRTUAL=
+    DISPLAY_BUDGET=4; DISPLAY_REFILL=0
+    for f in /sys/class/drm/card*-Virtual-*; do [[ -e "$f" ]] && DISPLAY_VIRTUAL=1; done
+    display_state
+    [[ -n "$DISPLAY_VIRTUAL" ]] && display_preferred
+    DISPLAY_SEEN="$DISPLAY_SYS$DISPLAY_XR"
+
+    # One bar per session: a new one (a new login) replaces the old one.
+    # abyss-bar --refresh sends SIGUSR1 after a click changed something.
+    mkdir -p "$RUN" 2>/dev/null
+    read -r OLD 2>/dev/null < "$RUN/pid" || OLD=
+    if [[ "$OLD" =~ ^[0-9]+$ && "$OLD" != $$ ]] && grep -qa dwm-statusbar "/proc/$OLD/cmdline" 2>/dev/null; then
+        kill "$OLD" 2>/dev/null
+    fi
+    printf '%s\n' "$$" 2>/dev/null > "$RUN/pid"
+    trap 'REFRESH=1; [[ -n "$SLEEPER" ]] && kill "$SLEEPER" 2>/dev/null' USR1
+    trap '[[ -n "$SLEEPER" ]] && kill "$SLEEPER" 2>/dev/null; exit 0' TERM INT HUP
+fi
 
 while true; do
     NOW_T=${EPOCHREALTIME/[.,]/}
     ELAPSED=$(( NOW_T - PREV_T )); (( ELAPSED > 0 )) || ELAPSED=1
     PREV_T=$NOW_T
 
-    read -r TOTAL IDLE <<< "$(cpu_stat)"
-    DT=$(( ${TOTAL:-0} - ${PREV_TOTAL:-0} )); DI=$(( ${IDLE:-0} - ${PREV_IDLE:-0} ))
+    # slow probes: keyboard layouts every 30 ticks, network every 5, Docker every 15
+    if (( TICK % 30 == 0 )); then
+        kbd_probe
+        HAVE_WPCTL=; type -P wpctl >/dev/null && HAVE_WPCTL=1
+        HAVE_XKBSWITCH=; type -P xkb-switch >/dev/null && HAVE_XKBSWITCH=1
+    fi
+    (( TICK % 5 == 0 )) && net_probe
+    if (( TICK % 15 == 0 )); then docker_probe; passwords_probe; battery; fi
+    TICK=$(( (TICK + 1) % 30 ))
+
+    cpu_stat
+    DT=$(( TOTAL - PREV_TOTAL )); DI=$(( IDLE - PREV_IDLE ))
     CPU_PCT=0
     (( DT > 0 )) && CPU_PCT=$(( 100 * (DT - DI) / DT ))
-    PREV_TOTAL=${TOTAL:-0}; PREV_IDLE=${IDLE:-0}
+    PREV_TOTAL=$TOTAL; PREV_IDLE=$IDLE
 
-    read -r RX TX <<< "$(net_bytes)"
+    net_bytes
     DRX=$(( RX - PREV_RX )); DTX=$(( TX - PREV_TX ))
     (( DRX < 0 )) && DRX=0; (( DTX < 0 )) && DTX=0     # counters reset (link down/up)
     PREV_RX=$RX; PREV_TX=$TX
-    DOWN=$(human_rate $(( DRX * 1000000 / ELAPSED )))
-    UP=$(human_rate $(( DTX * 1000000 / ELAPSED )))
+    human_rate $(( DRX * 1000000 / ELAPSED )); DOWN=$REPLY
+    human_rate $(( DTX * 1000000 / ELAPSED )); UP=$REPLY
+    [[ -z "$ONCE" ]] && printf '%s %s\n' "$DOWN" "$UP" 2>/dev/null > "$RUN/rates"
 
-    if online; then
-        NET="${LABEL}$(network_label) ${VALUE}↓${DOWN} ↑${UP}"
-    else
-        NET="${WARN}offline"
+    network; keyboard; volume; cpu_temp; memory
+    printf -v CLOCK "%(${CLOCK_FMT})T" "${ABYSS_BAR_NOW:--1}"
+
+    STATUS="${NET}${SEP}"
+    [[ -n "$DOCKER_TEXT" ]] && STATUS+="${DOCKER_TEXT}${SEP}"
+    [[ -n "$PASS_TEXT" ]] && STATUS+="${PASS_TEXT}${SEP}"
+    [[ -n "$KBD" ]] && STATUS+="${KBD}${SEP}"
+    [[ -n "$VOL" ]] && STATUS+="${VOL}${SEP}"
+    [[ -n "$BAT" ]] && STATUS+="${BAT}${SEP}"
+    (( SHOW_CPU )) && STATUS+="${M_CPU}${LABEL} ${VALUE}${CPU_PCT}%${TEMP}${SEP}"
+    (( SHOW_MEMORY )) && STATUS+="${M_MEM}${LABEL}󰍛 ${VALUE}${MEM}${SEP}"
+    STATUS+="${M_CLOCK}${VALUE}${CLOCK} ${M_MENU}${MENU}"
+
+    if [[ -n "$ONCE" ]]; then printf '%s\n' "$STATUS"; exit 0; fi
+    if [[ "$STATUS" != "$LAST" ]]; then
+        xsetroot -name "$STATUS" 2>/dev/null || exit 0      # the X session has ended
+        LAST=$STATUS
     fi
-
-    if (( BAT_TICK % 15 == 0 )); then BAT=$(battery); fi
-    BAT_TICK=$((BAT_TICK + 1))
-    VOL=$(volume)
-    STATUS="${NET}${SEP}${BAT:+$BAT${SEP}}${VOL:+$VOL${SEP}}${LABEL} ${VALUE}${CPU_PCT}%$(cpu_temp)${SEP}${LABEL}󰍛 ${VALUE}$(ram)${SEP}${VALUE}$(date '+%a %d %H:%M') ${MENU}"
-
-    xsetroot -name "$STATUS" 2>/dev/null || true
     watch_displays
-    sleep "$INTERVAL"
+    # a refresh (SIGUSR1) ends the sleep early and runs every probe again
+    if (( ! REFRESH )); then
+        sleep "$INTERVAL" & SLEEPER=$!
+        wait "$SLEEPER" 2>/dev/null
+        SLEEPER=
+    fi
+    (( REFRESH )) && { REFRESH=0; TICK=0; }
 done

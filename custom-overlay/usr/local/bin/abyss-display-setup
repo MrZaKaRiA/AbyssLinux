@@ -2,20 +2,14 @@
 # ==============================================================================
 # abyss-display-setup - LightDM display-setup-script (runs as root on the
 # greeter's X server before the greeter starts).
-# Gives the login screen the same text size the desktop will use: the same
-# rule as ~/.xinitrc (2x in Apple Virtualization and from 1700 px screen
-# height, 1.5x from 1300 px). Override for everyone in /etc/abyss/dpi.
+# Gives the login screen the display scale the desktop will use (abyss-scale:
+# sized for the screen). Override for everyone in /etc/abyss/dpi.
 # ==============================================================================
-dpi=$(tr -dc 0-9 < /etc/abyss/dpi 2>/dev/null)
-if [ -z "$dpi" ]; then
-    apple_vm=
-    grep -qs '^Apple' /sys/class/dmi/id/sys_vendor && apple_vm=1
-    grep -qsx '0x106b' /sys/bus/pci/devices/*/subsystem_vendor && apple_vm=1
-    h=$(xrandr --query 2>/dev/null | awk '$2 == "connected" {for(i=3;i<=NF;i++) if ($i ~ /^[0-9]+x[0-9]+[+-]/) {v=$i; sub(/[+-].*/, "", v); split(v,a,"x"); if (a[2] > h) h=a[2]}} END {print h+0}')
-    if [ -n "$apple_vm" ] || [ "${h:-0}" -ge 1700 ]; then dpi=192
-    elif [ "${h:-0}" -ge 1300 ]; then dpi=144
-    else dpi=96; fi
+if command -v abyss-scale >/dev/null 2>&1; then
+    abyss-scale --greeter
+else
+    dpi=$(tr -dc 0-9 < /etc/abyss/dpi 2>/dev/null)
+    command -v xrdb >/dev/null 2>&1 && echo "Xft.dpi: ${dpi:-96}" | xrdb -merge
+    command -v abyss-cursor >/dev/null 2>&1 && abyss-cursor "${dpi:-96}"
 fi
-command -v xrdb >/dev/null 2>&1 && echo "Xft.dpi: $dpi" | xrdb -merge
-command -v abyss-cursor >/dev/null 2>&1 && abyss-cursor "$dpi"
 exit 0

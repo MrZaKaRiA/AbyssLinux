@@ -26,7 +26,7 @@
 # ==============================================================================
 
 PATH="/usr/local/bin:${HOME}/.local/bin:${PATH}"
-# Sizes at 96 dpi, scaled by Xft.dpi (set by ~/.xinitrc for HiDPI screens)
+# Sizes at 96 dpi, scaled by Xft.dpi (the display scale, set by abyss-scale)
 DPI=$(xrdb -query 2>/dev/null | awk '$1 == "Xft.dpi:" {print int($2); exit}')
 [ "${DPI:-0}" -ge 48 ] 2>/dev/null || DPI=96
 BAR_H=$(( 26 * DPI / 96 ))     # dwm bar height (px) - menu opens just below it
@@ -120,7 +120,18 @@ menu_pos() {  # menu_pos [menu width in px]
     [ $# -eq 4 ] || return
     x=$(( $3 + $2 - $1 - 8 ))
     [ "$x" -ge "$3" ] || x=$3
-    printf -- '-p %dx%d' "$x" $(( $4 + BAR_H + 2 ))
+    bh=$(bar_height) || bh=$BAR_H
+    printf -- '-p %dx%d' "$x" $(( $4 + bh + 2 ))
+}
+
+# Height of the dwm bar as drawn: dwm sizes it for the display scale it
+# started with, and keeps that size after a later change of scale.
+bar_height() {
+    has xdotool || return 1
+    xdotool search --classname '^dwm$' 2>/dev/null | while read -r b_id; do
+        xdotool getwindowgeometry --shell "$b_id" 2>/dev/null
+    done | awk -F= '$1 == "WIDTH" { w = $2 } $1 == "HEIGHT" && w > bw { bw = w; bh = $2 }
+        END { if (bh > 0 && bh < 400) print bh; else exit 1 }'
 }
 
 # xmenu opens a submenu to the right of its parent when it fits there, else
@@ -198,10 +209,7 @@ EOF
 		󰇀  Pointer size	pointer-size
 		󰖨  OLED screen blanking: toggle 10 min	oled-toggle
 		󰖨  Wallpaper…	wallpapers
-		  Text size: automatic (recommended)	dpi-auto
-		  Text size: 100% (96 DPI)	dpi-96
-		  Text size: 150% (144 DPI)	dpi-144
-		  Text size: 200% (192 DPI)	dpi-192
+__DISPLAY_SCALE_ROWS__
 	󰌌  Keyboard
 		󰌌  First-run setup / keyboard layout	setup
 		󰘳  __KEYBOARD_SWAP_LABEL__	kbd-swap
@@ -233,7 +241,21 @@ menu_tree() {
     res_label=$(abyss-display --status 2>/dev/null | awk '$2 == "fixed" {printf "%s%s", sep, $3; sep = ", "}' | tr -d '|&\\')
     if [ -n "$res_label" ]; then res_label="Resolution: fixed $res_label · back to automatic (follow the display / VM window)"
     else res_label='Resolution: automatic (follow the display / VM window)'; fi
-    menu_tree_raw | sed "s|__KEYBOARD_SWAP_LABEL__|$swap_label|g; s|__DISPLAY_RESOLUTION_LABEL__|$res_label|g"
+    menu_tree_raw | sed "s|__KEYBOARD_SWAP_LABEL__|$swap_label|g; s|__DISPLAY_RESOLUTION_LABEL__|$res_label|g" |
+        ABYSS_SCALE_ROWS=$(scale_rows) awk '$0 == "__DISPLAY_SCALE_ROWS__" { if (ENVIRON["ABYSS_SCALE_ROWS"] != "") print ENVIRON["ABYSS_SCALE_ROWS"]; next } { print }'
+}
+
+# Display scale rows of Settings › Display: automatic first, with what it
+# gives on this screen now, then the fixed choices; a check marks the saved one.
+scale_rows() {
+    s_auto=$(abyss-scale --default 2>/dev/null)
+    s_saved=$(tr -dc 0-9 2>/dev/null < "$HOME/.config/abyss/dpi")
+    s_mark=; [ -z "$s_saved" ] && s_mark='  ✓'
+    printf '\t\t󰁌  Display scale: automatic%s%s\tdpi-auto\n' "${s_auto:+ (now $(( s_auto * 100 / 96 ))%)}" "$s_mark"
+    for s_dpi in 96 120 144 168 192; do
+        s_mark=; [ "$s_saved" = "$s_dpi" ] && s_mark='  ✓'
+        printf '\t\t󰁌  Display scale: %s%%%s\tdpi-%s\n' $(( s_dpi * 100 / 96 )) "$s_mark" "$s_dpi"
+    done
 }
 
 # Flatten the tree for dmenu: "Settings › Keyboard › Test what keys send<TAB>kbd-test"
@@ -299,37 +321,35 @@ choose() {
     fi
 }
 
-automatic_dpi() {
-    apple_vm=
-    grep -qs '^Apple' /sys/class/dmi/id/sys_vendor && apple_vm=1
-    grep -qsx '0x106b' /sys/bus/pci/devices/*/subsystem_vendor && apple_vm=1
-    h=$(xrandr --query 2>/dev/null | awk '$2 == "connected" {for(i=3;i<=NF;i++) if ($i ~ /^[0-9]+x[0-9]+[+-]/) {v=$i; sub(/[+-].*/, "", v); split(v,a,"x"); if (a[2] > h) h=a[2]}} END {print h+0}')
-    if [ -n "$apple_vm" ] || [ "${h:-0}" -ge 1700 ]; then echo 192
-    elif [ "${h:-0}" -ge 1300 ]; then echo 144
-    else echo 96; fi
-}
-
+# Display scale (Xft.dpi): abyss-scale decides the automatic one and applies
+# it with the menu size and the pointer; a fixed choice is kept in
+# ~/.config/abyss/dpi.
 apply_dpi() {
+    if has abyss-scale; then abyss-scale --apply "$1"; return; fi
     printf 'Xft.dpi: %s\nxmenu.width: %s\nxmenu.height: %s\n' "$1" $((260 * $1 / 96)) $((28 * $1 / 96)) | xrdb -merge || return
     command -v abyss-cursor >/dev/null 2>&1 && abyss-cursor "$1" || :
 }
 
-set_dpi() {
+set_dpi() {  # set_dpi auto|DPI
     choice=$1
     old_dpi=$DPI
-    [ "$choice" = auto ] && new_dpi=$(automatic_dpi) || new_dpi=$choice
-    apply_dpi "$new_dpi" || { notify "Text size" "Could not change X resources."; return 1; }
+    if [ "$choice" = auto ]; then
+        new_dpi=$(abyss-scale --default 2>/dev/null)
+        [ -n "$new_dpi" ] || new_dpi=96
+    else new_dpi=$choice; fi
+    pct=$(( new_dpi * 100 / 96 ))
+    apply_dpi "$new_dpi" || { notify "Display scale" "Could not change X resources."; return 1; }
     # Preview first; only persist the new setting after explicit confirmation.
-    # Closing the menu or letting it time out restores the previous DPI.
-    answer=$(printf 'Keep this size\nRevert to previous size\n' | timeout 20s dmenu -i -c -l 2 -fn "$FONT" -nb "$NB" -nf "$NF" -sb "$SB" -sf "$SF" -p 'Keep text size? Reverts in 20 seconds' 2>/dev/null) || answer=
-    if [ "$answer" = 'Keep this size' ]; then
+    # Closing the menu or letting it time out restores the previous scale.
+    answer=$(printf 'Keep this scale\nRevert to previous scale\n' | timeout 20s dmenu -i -c -l 2 -fn "$FONT" -nb "$NB" -nf "$NF" -sb "$SB" -sf "$SF" -p "Keep display scale $pct%? Reverts in 20 seconds" 2>/dev/null) || answer=
+    if [ "$answer" = 'Keep this scale' ]; then
         mkdir -p "$HOME/.config/abyss"
-        if [ "$choice" = auto ]; then rm -f "$HOME/.config/abyss/dpi"
-        else printf '%s\n' "$new_dpi" > "$HOME/.config/abyss/dpi"; fi
-        notify "Text size saved" "New windows use the new text and pointer sizes. Log out and back in for all apps."
+        if [ "$choice" = auto ]; then rm -f "$HOME/.config/abyss/dpi"; pct="automatic (now $pct%)"
+        else printf '%s\n' "$new_dpi" > "$HOME/.config/abyss/dpi"; pct="$pct%"; fi
+        notify "Display scale: $pct" "Menus and new windows use it now. Log out and back in for the bar and the apps that are open."
     else
         apply_dpi "$old_dpi"
-        notify "Text size restored" "The previous size was kept."
+        notify "Display scale restored" "The previous scale was kept."
     fi
 }
 
@@ -432,7 +452,7 @@ act() {
                           echo 1 > "$conf"; xset s 600 600; xset +dpms; xset dpms 600 600 600
                           notify "OLED blanking on" "The screen blanks after 10 minutes idle; move the mouse or press a key to wake it."
                       fi ;;
-        dpi-auto|dpi-96|dpi-144|dpi-192) set_dpi "${1#dpi-}" ;;
+        dpi-auto|dpi-96|dpi-120|dpi-144|dpi-168|dpi-192) set_dpi "${1#dpi-}" ;;
         kbd-toggle)   abyss-keyboard --toggle ;;
         kbd-swap)     abyss-keyboard --swap-super ;;
         kbd-test)     abyss-keyboard --test ;;

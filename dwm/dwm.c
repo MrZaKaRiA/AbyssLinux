@@ -247,6 +247,8 @@ static void seturgent(Client *c, int urg);
 static void showhide(Client *c);
 static void spawn(const Arg *arg);
 static int status2dtextlength(char *stext);
+static int statusblockat(int x);
+static void statusclick(const Arg *arg);
 static Monitor *systraytomon(Monitor *m);
 static void shifttag(const Arg *arg);
 static void shiftview(const Arg *arg);
@@ -286,7 +288,10 @@ static void zoom(const Arg *arg);
 /* variables */
 static Systray *systray = NULL;
 static const char broken[] = "broken";
-static char stext[1024];
+static char stext[1024];     /* status text as drawn */
+static char rawstext[1024];  /* status text with the click-block markers */
+static int statusblock;      /* block under the last click on the status */
+static unsigned int statusbutton;
 static int screen;
 static int sw, sh;           /* X display screen geometry width, height */
 static int bh;               /* bar height */
@@ -494,6 +499,7 @@ void
 buttonpress(XEvent *e)
 {
 	unsigned int i, x, click;
+	int sx;
 	Arg arg = {0};
 	Client *c;
 	Monitor *m;
@@ -516,9 +522,12 @@ buttonpress(XEvent *e)
 			arg.ui = 1 << i;
 		} else if (ev->x < x + TEXTW(selmon->ltsymbol))
 			click = ClkLtSymbol;
-		else if (ev->x > selmon->ww - status2dtextlength(stext) - (int)getsystraywidth())
+		else if (ev->x > (sx = selmon->ww - status2dtextlength(stext) - (int)getsystraywidth())) {
 			click = ClkStatusText;
-		else
+			/* drawstatusbar starts the text 1px right of sx */
+			statusblock = statusblockat(ev->x - sx - 1);
+			statusbutton = ev->button;
+		} else
 			click = ClkWinTitle;
 	} else if ((c = wintoclient(ev->window))) {
 		focus(c);
@@ -918,6 +927,60 @@ status2dtextlength(char *stext)
 		w += TEXTW(text) - lrpad;
 	free(p);
 	return w + 2;
+}
+
+/* statuscmd: the status text may start each block with a marker byte from
+ * \x01 to \x1f (dwm-statusbar uses \x01-\x0f). Returns the marker of the block
+ * at x pixels from the left edge of the status text, 0 when the text there
+ * has no marker. The widths are measured exactly as drawstatusbar draws them,
+ * status2d codes included. */
+int
+statusblockat(int x)
+{
+	char seg[sizeof rawstext];
+	char *s = rawstext;
+	int block = 0, end = 0, n;
+
+	if (x < 0)
+		return 0;
+	for (;;) {
+		n = 0;
+		while (*s && (unsigned char)*s >= ' ')
+			seg[n++] = *s++;
+		seg[n] = '\0';
+		if (n)
+			end += status2dtextlength(seg) - 2;
+		if (x < end || !*s)
+			return block;
+		block = (unsigned char)*s++;
+	}
+}
+
+/* A click on a status block runs statuscmd with the block number and the
+ * button (also in $BLOCK_BUTTON, as i3blocks and dwmblocks scripts expect);
+ * anywhere else on the status it does what the binding names. */
+void
+statusclick(const Arg *arg)
+{
+	char block[12], button[12];
+	char *cmd[LENGTH(statuscmd) + 2];
+	unsigned int i, n = 0;
+
+	if (statusblock <= 0) {
+		if (arg->v)
+			spawn(arg);
+		return;
+	}
+	snprintf(block, sizeof block, "%d", statusblock);
+	snprintf(button, sizeof button, "%u", statusbutton);
+	for (i = 0; i < LENGTH(statuscmd) && statuscmd[i]; i++)
+		cmd[n++] = (char *)statuscmd[i];
+	cmd[n++] = block;
+	cmd[n++] = button;
+	cmd[n] = NULL;
+	setenv("BLOCK_BUTTON", button, 1);
+	spawn(&(Arg){ .v = cmd });
+	unsetenv("BLOCK_BUTTON");
 }
 
 int
@@ -2691,8 +2754,15 @@ updatesizehints(Client *c)
 void
 updatestatus(void)
 {
-	if (!gettextprop(root, XA_WM_NAME, stext, sizeof(stext)))
-		strcpy(stext, "dwm-"VERSION);
+	char *s, *d;
+
+	if (!gettextprop(root, XA_WM_NAME, rawstext, sizeof(rawstext)))
+		strcpy(rawstext, "dwm-"VERSION);
+	/* the markers (bytes 1-31) only say where a block starts: never drawn */
+	for (s = rawstext, d = stext; *s; s++)
+		if ((unsigned char)*s >= ' ')
+			*d++ = *s;
+	*d = '\0';
 	drawbar(selmon);
 	updatesystray();
 }

@@ -94,6 +94,8 @@ static const char *virtcmd[]    = { "/usr/local/bin/abyss-control-center", "virt
 static const char *lockcmd[]    = { "slock", NULL };
 static const char *helpcmd[]    = { "/usr/local/bin/abyss-control-center", "shortcuts", NULL };
 static const char *controlcentercmd[] = { "/usr/local/bin/abyss-control-center", NULL };
+/* run as: statuscmd... BLOCK BUTTON (dwm-statusbar marks its blocks) */
+static const char *statuscmd[] = { "/usr/local/bin/abyss-bar", "--click", NULL };
 static const char *screenscmd[] = { "/usr/local/bin/abyss-control-center", "screenshot", NULL };
 static const char *areascreenscmd[] = { "/usr/local/bin/abyss-control-center", "screenshot-area", NULL };
 
@@ -167,9 +169,12 @@ static const Button buttons[] = {
 	{ ClkLtSymbol,          0,              Button1,        setlayout,      {0} },
 	{ ClkLtSymbol,          0,              Button3,        setlayout,      {.v = &layouts[2]} },
 	{ ClkWinTitle,          0,              Button2,        zoom,           {0} },
-	{ ClkStatusText,        0,              Button1,        spawn,          {.v = controlcentercmd } },
-	{ ClkStatusText,        0,              Button2,        spawn,          {.v = termcmd } },
+	/* statusclick: a block of the status runs statuscmd, the rest of it the argument */
+	{ ClkStatusText,        0,              Button1,        statusclick,    {.v = controlcentercmd } },
+	{ ClkStatusText,        0,              Button2,        statusclick,    {.v = termcmd } },
 	{ ClkStatusText,        0,              Button3,        spawn,          {.v = controlcentercmd } },
+	{ ClkStatusText,        0,              Button4,        statusclick,    {0} },
+	{ ClkStatusText,        0,              Button5,        statusclick,    {0} },
 	{ ClkClientWin,         MODKEY,         Button1,        movemouse,      {0} },
 	{ ClkClientWin,         MODKEY,         Button2,        togglefloating, {0} },
 	{ ClkClientWin,         MODKEY,         Button3,        resizemouse,    {0} },

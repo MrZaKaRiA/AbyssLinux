@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+* **Display scale follows the screen:** about 100% for a VM window on a normal monitor (for example a 34" 3440x1440 ultrawide), 200% only for Retina-sized windows, and real monitors are scaled by their actual pixel density. Previously every Mac VM got 200%.
+* When the resolution changes (a VM window moved to another screen, a monitor plugged in), the scale is re-applied once with a short notice. New windows use it right away; the bar after the next login.
+* **Settings › Display › Display scale:** automatic (shows what it gives now), or 100/125/150/175/200%, with the 20-second keep/revert prompt. Scales pinned earlier are kept.
+* New `abyss-scale` command (`--explain` says why a scale was picked). The login screen, pointer size and menu size use the same rule; older `~/.xinitrc` files are corrected automatically.
+* **Status bar like the macOS menu bar:** Wi-Fi name and signal, wired or offline; running Docker containers; passwords; keyboard layout (EN/AR); volume; battery; CPU; memory; and "Wed 18 Nov 19:11".
+* **Every item on the bar opens its own menu:** Wi-Fi networks (connect with a hidden password prompt), Docker containers (logs, shell, stop, start), keyboard layouts and settings, volume, calendar with time zone and clock sync, battery, system monitor. Scroll on the volume to change it; middle-click mutes or switches the layout. Right-click anywhere still opens the Abyss menu.
+* **Passwords:** the key icon offers to install the new "Password manager (pass)" bundle in Install software, sets up the password store, and copies, types, adds or generates passwords.
+* **dwm:** new statuscmd patch, so dwm knows which part of the status bar you clicked.
+* **Lighter status bar:** it starts about 4 programs every 2 seconds instead of about 20.
+* **Fixed:** after logging out and back in, the old status bar no longer keeps running and overwriting the new one.
+
 ## v27.3.4 (2026-11-17)
 
 * **Clock stays right:** Abyss now keeps the system time synchronised (chrony). Existing installs get it with the next update, once, unless another time service is already enabled; if you turn it off, it stays off. Virtual machines correct their clock right after the host wakes from sleep.

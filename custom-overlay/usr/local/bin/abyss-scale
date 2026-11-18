@@ -1,0 +1,188 @@
+#!/bin/sh
+# ==============================================================================
+# abyss-scale - the one place that decides how big the Abyss desktop is drawn
+#
+# The scale is the X resource Xft.dpi: 96 = 100%, 120 = 125%, 144 = 150%,
+# 168 = 175%, 192 = 200%. Point-sized fonts follow it (dwm bar, dmenu, xmenu,
+# st, rofi, dunst), GTK scales its fonts by it, Qt reads it as the font DPI and
+# Chromium/Electron apps (VS Code, Chrome) turn it into their zoom when they
+# start. abyss-scale also sizes the xmenu popup and the pointer (abyss-cursor).
+#
+#   abyss-scale                print the DPI in effect
+#   abyss-scale --explain      "DPI SOURCE REASON": why that DPI
+#   abyss-scale --default      the DPI without the user's choice (/etc, else automatic)
+#   abyss-scale --auto         the automatic DPI for this screen
+#   abyss-scale --apply [DPI]  apply DPI (default: the one in effect) now
+#   abyss-scale --login        apply at login (~/.xinitrc, abyss-keyboard for old ones)
+#   abyss-scale --update       after a resolution change (abyss-display): apply
+#                              the DPI in effect if it changed, with one notice
+#   abyss-scale --greeter      LightDM login screen (root): /etc/abyss/dpi, else
+#                              automatic; never a user's file
+#
+# Which DPI, first match:
+#   ~/.config/abyss/dpi   a number, 72-384 (Menu > Settings > Display > Display scale)
+#   /etc/abyss/dpi        the same, for everyone and the login screen
+#   automatic, from the primary display (else the largest):
+#     a real monitor that reports a believable physical size (EDID): from its
+#       pixels per inch: below 140 -> 96, 140-154 -> 120, 155-179 -> 144,
+#       180-204 -> 168, 205 and up -> 192
+#     a virtual machine on a Mac (Apple Virtualization: Lumen, UTM, ...): the
+#       guest sees the VM window in device pixels, 2 per point on a Retina
+#       screen. 192 when the size looks like a Retina Mac screen (short side
+#       1600 px or more and no wider than 1.8:1: 2560x1600, 2880x1800,
+#       3024x1964, 3456x2234, 3840x2160, 5120x2880), else 96 (3440x1440,
+#       2560x1440, 1920x1200 on a normal monitor, where macOS runs at 1x too)
+#     anything else (other VMs, no size reported): 144 from a short side of
+#       2000 px, else 96. 200% is never guessed without evidence.
+#
+# Only for tests: ABYSS_SCALE_ROOT is put in front of /sys and /etc paths.
+# ==============================================================================
+set -u
+
+ROOT=${ABYSS_SCALE_ROOT:-}
+has() { command -v "$1" >/dev/null 2>&1; }
+
+valid() {  # valid DPI: 72-384
+    case "$1" in ''|*[!0-9]*) return 1 ;; esac
+    [ "${#1}" -le 3 ] && [ "$1" -ge 72 ] && [ "$1" -le 384 ]
+}
+
+read_dpi() {  # read_dpi FILE: the number in it, when valid
+    [ -r "$1" ] || return 1
+    r=$(tr -dc 0-9 < "$1" 2>/dev/null | sed 's/^0*//')
+    valid "$r" && printf '%s\n' "$r"
+}
+
+# The display that decides: "NAME WIDTH HEIGHT MM_W MM_H" of the primary
+# output, else of the largest active one.
+screen() {
+    xrandr --query 2>/dev/null | awk '
+        $2 == "connected" {
+            w = 0; h = 0; mw = 0; mh = 0; nmm = 0; p = 0
+            for (i = 3; i <= NF; i++) {
+                if ($i == "primary") p = 1
+                else if ($i ~ /^[0-9]+x[0-9]+[+-]/) { v = $i; sub(/[+-].*/, "", v); split(v, a, "x"); w = a[1] + 0; h = a[2] + 0 }
+                else if ($i ~ /^[0-9]+mm$/) { if (nmm++ == 0) mw = $i + 0; else mh = $i + 0 }
+            }
+            if (w == 0 || h == 0) next
+            if ((p && !bp) || (p == bp && w * h > bw * bh)) { bp = p; bn = $1; bw = w; bh = h; bmw = mw; bmh = mh }
+        }
+        END { if (bw) print bn, bw, bh, bmw, bmh }'
+}
+
+apple() {  # Apple hardware or Apple Virtualization
+    grep -qs '^Apple' "$ROOT/sys/class/dmi/id/sys_vendor" && return 0
+    grep -qsx '0x106b' "$ROOT"/sys/bus/pci/devices/*/subsystem_vendor
+}
+
+virtual() {  # $1 = output name. A VM's EDID size, if any, is made up.
+    case "$1" in Virtual*) return 0 ;; esac
+    cat "$ROOT/sys/class/dmi/id/sys_vendor" "$ROOT/sys/class/dmi/id/product_name" 2>/dev/null |
+        grep -qiE 'qemu|kvm|vmware|virtualbox|innotek|parallels|xen|bochs|bhyve|virtual machine'
+}
+
+# "DPI REASON" for this screen.
+automatic() {
+    set -- $(screen)
+    [ $# -eq 5 ] || { echo '96 no active display found'; return; }
+    name=$1 w=$2 h=$3 mw=$4 mh=$5
+    short=$h long=$w; [ "$w" -lt "$h" ] && short=$w long=$h
+    if ! virtual "$name"; then
+        # Physical size when it is believable: a real width, the same shape
+        # as the pixel mode (either way round) and 60-400 pixels per inch.
+        ppi=$(awk -v w="$w" -v h="$h" -v mw="$mw" -v mh="$mh" 'BEGIN {
+            if (mw < 100 || mh <= 0) exit
+            pl = (w > h ? w : h); ps = (w > h ? h : w); ml = (mw > mh ? mw : mh); ms = (mw > mh ? mh : mw)
+            r = (pl / ps) / (ml / ms); if (r < 0.9 || r > 1.1) exit
+            p = sqrt(w * w + h * h) / (sqrt(mw * mw + mh * mh) / 25.4)
+            if (p >= 60 && p <= 400) printf "%d\n", p + 0.5 }')
+        if [ -n "$ppi" ]; then
+            if [ "$ppi" -lt 140 ]; then d=96
+            elif [ "$ppi" -lt 155 ]; then d=120
+            elif [ "$ppi" -lt 180 ]; then d=144
+            elif [ "$ppi" -lt 205 ]; then d=168
+            else d=192; fi
+            echo "$d $name ${w}x$h is $ppi pixels per inch (${mw}x$mh mm)"
+            return
+        fi
+    fi
+    if apple; then
+        if [ "$short" -ge 1600 ] && [ $(( long * 10 )) -le $(( short * 18 )) ]; then
+            echo "192 Mac virtual machine: ${w}x$h is shaped like a Retina screen (2 pixels per point)"
+        else
+            echo "96 Mac virtual machine: ${w}x$h is not a Retina screen size (1 pixel per point)"
+        fi
+        return
+    fi
+    why='no physical size reported'; virtual "$name" && why='virtual display, size unknown'
+    if [ "$short" -ge 2000 ]; then echo "144 ${w}x$h, $why: 2000 or more pixels high"
+    else echo "96 ${w}x$h, $why"; fi
+}
+
+# "DPI SOURCE REASON"
+explain() {  # explain [user|nouser]
+    if [ "${1:-user}" = user ] && d=$(read_dpi "${HOME:-/nonexistent}/.config/abyss/dpi"); then
+        echo "$d user ~/.config/abyss/dpi"
+    elif d=$(read_dpi "$ROOT/etc/abyss/dpi"); then
+        echo "$d system /etc/abyss/dpi"
+    else
+        echo "$(automatic | sed 's/ / auto /')"
+    fi
+}
+
+percent() { echo "$(( $1 * 100 / 96 ))%"; }
+
+# One notice, without waiting for it: a notification when a notification
+# daemon can be reached (notify-send), else short dmenu lines, gone after 8
+# seconds or a key press. dmenu starts at the new scale, so it shows it too.
+notice() {  # notice TITLE TEXT
+    if has notify-send && notify-send -a Abyss "$1" "$2" 2>/dev/null; then return 0; fi
+    has dmenu || return 0
+    (printf '%s\n' "$2" | timeout 8 dmenu -c -l 2 -fn 'JetBrainsMono Nerd Font:size=10' \
+        -nb '#0d0b18' -nf '#f3e8ff' -sb '#a855f7' -sf '#090514' -p "$1") >/dev/null 2>&1 &
+}
+
+# What abyss-scale last applied in this X session: "UID DPI" in the X
+# resource abyss.scale (gone when the X server stops).
+applied() {
+    xrdb -query 2>/dev/null | awk -v u="$(id -u)" '$1 == "abyss.scale:" && $2 == u { print $3; exit }'
+}
+
+apply() {  # apply DPI
+    has xrdb || return 1
+    printf 'Xft.dpi: %s\nxmenu.width: %s\nxmenu.height: %s\nabyss.scale: %s %s\n' \
+        "$1" $(( 260 * $1 / 96 )) $(( 28 * $1 / 96 )) "$(id -u)" "$1" | xrdb -merge || return 1
+    if has abyss-cursor; then abyss-cursor "$1" >/dev/null 2>&1 || :; fi
+    :
+}
+
+case "${1:-}" in
+    '')        explain | cut -d' ' -f1 ;;
+    --explain) explain ;;
+    --default) explain nouser | cut -d' ' -f1 ;;
+    --auto)    automatic | cut -d' ' -f1 ;;
+    --apply)
+        d=${2:-$(explain | cut -d' ' -f1)}
+        valid "$d" || { echo "abyss-scale: DPI must be a number from 72 to 384" >&2; exit 2; }
+        apply "$d" ;;
+    --login)   apply "$(explain | cut -d' ' -f1)" ;;
+    --greeter) apply "$(explain nouser | cut -d' ' -f1)" ;;
+    --update)
+        d=$(explain | cut -d' ' -f1)
+        was=$(applied)
+        if [ "$was" = "$d" ]; then
+            # Same scale; the pointer still follows the new screen size.
+            if has abyss-cursor; then abyss-cursor "$d" >/dev/null 2>&1 || :; fi
+            exit 0
+        fi
+        apply "$d" || exit 1
+        # At login (the first time in a session, or before dwm runs: an
+        # older ~/.xinitrc set Xft.dpi itself) this is a quiet correction.
+        if [ -n "$was" ] && pgrep -u "$(id -u)" -x dwm >/dev/null 2>&1; then
+            notice "Display scale changed to $(percent "$d")" \
+                "Open apps: restart them to use it.
+The bar: changes when you log in again."
+        fi ;;
+    -h|--help) sed -n '3,40p' "$0" | sed 's/^# \{0,1\}//' ;;
+    *) echo "usage: abyss-scale [--explain|--default|--auto|--apply [DPI]|--login|--update|--greeter]" >&2; exit 2 ;;
+esac

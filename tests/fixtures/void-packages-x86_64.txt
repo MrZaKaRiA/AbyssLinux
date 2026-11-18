@@ -15,7 +15,9 @@ lf
 libvirt
 maim
 mpv
+pass
 pavucontrol
+pinentry-gtk
 pipewire
 qemu
 ripgrep

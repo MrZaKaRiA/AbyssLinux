@@ -51,12 +51,15 @@ hold_picker() {
 }
 # "WIDTHxHEIGHT" of the X screen, from xrandr --query on stdin.
 screen_size() { awk 'NR == 1 { for (i = 1; i < NF; i++) if ($i == "current") { print $(i + 1) "x" $(i + 3) + 0; exit } }'; }
-# The pointer is sized for the screen, so re-fit it after every mode change.
-# feh draws the wallpaper for one screen size: when the size changed (a VM
-# window resized, another resolution) draw it again, or the old picture stays
-# in the corner and repeats over the new area.
+# The display scale and the pointer are sized for the screen, so re-fit them
+# after every mode change (abyss-scale --update: a VM window moved from a
+# Retina screen to a normal one changes the automatic scale, once, with a
+# notice). feh draws the wallpaper for one screen size: when the size changed
+# (a VM window resized, another resolution) draw it again, or the old picture
+# stays in the corner and repeats over the new area.
 fit_desktop() {
-    has abyss-cursor && abyss-cursor >/dev/null 2>&1
+    if has abyss-scale; then abyss-scale --update >/dev/null 2>&1
+    elif has abyss-cursor; then abyss-cursor >/dev/null 2>&1; fi
     f_size=$(xrandr --query 2>/dev/null | screen_size)
     if [ -n "$f_size" ] && [ "$f_size" != "$size" ]; then
         size=$f_size

@@ -108,5 +108,8 @@ case "${1:-}" in
         ;;
     *)
         apply
+        # Old ~/.xinitrc files set Xft.dpi with the old rule just
+        # before this; correct it before dwm starts (see abyss-session).
+        if [ -n "${ABYSS_SCALE_LEGACY:-}" ] && has abyss-scale; then abyss-scale --login || :; fi
         ;;
 esac
