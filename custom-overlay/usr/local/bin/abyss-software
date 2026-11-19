@@ -10,7 +10,8 @@ choose() { dmenu -i -c -l 13 -fn "$FONT" -nb "$NB" -nf "$NF" -sb "$SB" -sf "$SF"
 term() { setsid -f st -t "$1" -e sh -c "$2; echo; printf 'Press Enter to close '; read _" >/dev/null 2>&1; }
 priv() { abyss-priv "$@"; }
 note() {
-    if has notify-send; then notify-send -a Abyss "$1" "${2:-}"
+    if [ -n "${ABYSS_IN_TERMINAL:-}" ]; then printf '%s: %s\n' "$1" "${2:-}"
+    elif has notify-send; then notify-send -a Abyss "$1" "${2:-}"
     else printf '%s — %s\n' "$1" "${2:-}" | choose -p 'Abyss'; fi
 }
 
@@ -189,6 +190,8 @@ run_install() {
         if [ -n "$update" ]; then echo "Updating:$ok"; else echo "Installing:$ok"; fi
         wait_for_xbps
         abyss-priv xbps-install $yes $update $ok; status=$?
+        # drop replaced package versions from the cache (says what it freed)
+        [ "$status" -ne 0 ] || [ ! -x "${ABYSS_DISK_CARE:=/usr/libexec/abyss-desktop/disk-care}" ] || "$ABYSS_DISK_CARE" clean-cache
     fi
     # Trust the package database, not the exit status: answering "n" at the
     # xbps prompt exits 0 without installing anything.
@@ -248,6 +251,8 @@ search_packages() {
     install_packages "$selected"
 }
 
+# Vendor installers. They run in the install terminal (--run-vendor-install),
+# so the download progress and any error are on screen.
 install_vscode() {
     case "$(uname -m)" in
         x86_64) arch=x64; folder=VSCode-linux-x64 ;;
@@ -255,10 +260,12 @@ install_vscode() {
         *) note 'VS Code unavailable' "Unsupported architecture: $(uname -m)"; return 1 ;;
     esac
     tmp=$(mktemp -d "${TMPDIR:-/tmp}/abyss-vscode.XXXXXX") || return 1
+    echo 'Downloading the latest stable VS Code from Microsoft...'
     if ! curl -fL --proto '=https' --tlsv1.2 "https://update.code.visualstudio.com/latest/linux-$arch/stable" -o "$tmp/code.tar.gz"; then
         rm -rf "$tmp"; note 'Download failed' 'Could not download VS Code from Microsoft.'; return 1
     fi
     mkdir -p "$HOME/.local/opt" "$HOME/.local/bin" "$HOME/.local/share/applications"
+    echo 'Unpacking...'
     tar -xzf "$tmp/code.tar.gz" -C "$tmp" || { rm -rf "$tmp"; return 1; }
     rm -rf "$HOME/.local/opt/vscode"
     mv "$tmp/$folder" "$HOME/.local/opt/vscode" || { rm -rf "$tmp"; return 1; }
@@ -338,21 +345,15 @@ EOF
 }
 
 install_ollama() {
-    if [ "$(printf 'Install latest Ollama\nCancel\n' | choose -p 'This runs Ollama’s official system installer')" = 'Install latest Ollama' ]; then
-        term 'Install Ollama' 'curl -fsSL --proto "=https" --tlsv1.2 https://ollama.com/install.sh | abyss-priv sh'
-    fi
+    curl -fsSL --proto '=https' --tlsv1.2 https://ollama.com/install.sh | abyss-priv sh
 }
 
 install_claude_code() {
-    if [ "$(printf 'Install latest Claude Code CLI\nCancel\n' | choose -p 'This installs to your home directory')" = 'Install latest Claude Code CLI' ]; then
-        term 'Install Claude Code' 'curl -fsSL --proto "=https" --tlsv1.2 https://claude.ai/install.sh | bash'
-    fi
+    curl -fsSL --proto '=https' --tlsv1.2 https://claude.ai/install.sh | bash
 }
 
 install_opencode() {
-    if [ "$(printf 'Install latest OpenCode CLI\nCancel\n' | choose -p 'This installs to your home directory')" = 'Install latest OpenCode CLI' ]; then
-        term 'Install OpenCode' 'curl -fsSL --proto "=https" --tlsv1.2 https://opencode.ai/v2/install | bash'
-    fi
+    curl -fsSL --proto '=https' --tlsv1.2 https://opencode.ai/v2/install | bash
 }
 
 open_official_page() {
@@ -380,6 +381,7 @@ Docker Engine	pkg:docker docker-compose docker-buildx
 VLC media player	pkg:vlc
 External storage (udisks + GVFS)	pkg:udisks2 gvfs Thunar
 Visual Studio Code (latest stable)	vscode
+Git (version control)	pkg:git
 ArtCraft Launcher	artcraft
 Ollama (official installer)	ollama
 Claude Code CLI	claude-code
@@ -417,35 +419,305 @@ installed_packages() {
     xbps-query -l 2>/dev/null | awk '{ n = $2; sub(/-[^-]*$/, "", n); print n }'
 }
 
-# entries ARCH, with a third column: installed state of a package bundle
-# (all, part:<missing names> or none; empty for other actions). Installed
-# bundles are marked in the label so the menu shows them at a glance.
-menu_entries() {
-    have=$(installed_packages)
-    entries "$1" | while IFS='	' read -r label action; do
-        state=
-        case $action in pkg:*)
-            missing=
-            for pkg in ${action#pkg:}; do
-                printf '%s\n' "$have" | grep -qxF "$pkg" || missing="$missing $pkg"
-            done
-            if [ -z "$missing" ]; then state=all; label="$label  ✓ installed"
-            elif [ "$missing" = " ${action#pkg:}" ]; then state=none
-            else state="part:${missing# }"; label="$label  (partly installed, missing:$missing)"; fi ;;
+# ---------------------------------------------------------------- installed?
+# The app's name without the notes in brackets: "Visual Studio Code".
+app_name() { printf '%s\n' "$1" | sed 's/ *([^)]*)//g; s/[[:space:]]*$//'; }
+
+# A stable name for an entry: the vendor action, or the package bundle's
+# name in lower case ("virtual-machines"). Shortcuts are saved under it.
+entry_key() {  # entry_key LABEL ACTION
+    case $2 in
+        pkg:*) app_name "$1" | tr 'A-Z' 'a-z' | sed 's/[^a-z0-9][^a-z0-9]*/-/g; s/^-//; s/-$//' | cut -c1-40 ;;
+        *) printf '%s\n' "$2" ;;
+    esac
+}
+
+# Where each vendor app is once installed, most likely first: the places
+# its installer above uses, then the usual system, npm and Flatpak ones.
+# ABYSS_ROOT prefixes system paths (tests).
+vendor_locations() {  # vendor_locations ACTION
+    r=${ABYSS_ROOT:-}
+    case $1 in
+        vscode) printf '%s\n' "$HOME/.local/opt/vscode/code" "$r/usr/bin/code" "$r/usr/local/bin/code" \
+                    "$r/opt/visual-studio-code/code" "$r/usr/share/code/code" "$r/usr/bin/code-oss" \
+                    flatpak:com.visualstudio.code ;;
+        cursor) printf '%s\n' "$HOME/.local/opt/cursor.AppImage" "$r/usr/bin/cursor" "$r/opt/cursor/cursor" \
+                    "$r/opt/Cursor/cursor" ;;
+        artcraft) printf '%s\n' "$HOME/.local/opt/artcraft-launcher.AppImage" ;;
+        ollama) printf '%s\n' "$r/usr/local/bin/ollama" "$r/usr/bin/ollama" ;;
+        claude-code) printf '%s\n' "$HOME/.local/bin/claude" "$HOME/.claude/local/claude" "$r/usr/local/bin/claude" \
+                    "$r/usr/bin/claude" cmd:claude ;;
+        opencode) printf '%s\n' "$HOME/.opencode/bin/opencode" "$HOME/.local/bin/opencode" \
+                    "$r/usr/local/bin/opencode" "$r/usr/bin/opencode" cmd:opencode ;;
+        chrome) printf '%s\n' "$r/usr/bin/google-chrome-stable" "$r/usr/bin/google-chrome" \
+                    "$r/opt/google/chrome/google-chrome" flatpak:com.google.Chrome ;;
+        antigravity) printf '%s\n' "$HOME/.local/opt/antigravity/antigravity" "$r/usr/bin/antigravity" \
+                    "$r/usr/local/bin/antigravity" "$r/opt/Antigravity/antigravity" "$r/opt/antigravity/antigravity" ;;
+    esac
+}
+
+# The installed vendor app: a path, or flatpak:<id>; nothing when absent.
+vendor_path() {  # vendor_path ACTION
+    vendor_locations "$1" | while IFS= read -r loc; do
+        case $loc in
+            flatpak:*) has flatpak && flatpak info "${loc#flatpak:}" >/dev/null 2>&1 || continue ;;
+            cmd:*) loc=$(command -v "${loc#cmd:}" 2>/dev/null) || continue
+                   case $loc in /*) ;; *) continue ;; esac ;;
+            *) [ -f "$loc" ] && [ -x "$loc" ] || continue ;;
         esac
-        printf '%s\t%s\t%s\n' "$label" "$action" "$state"
+        printf '%s\n' "$loc"; break
     done
+}
+
+# Installed state of a catalogue entry: all, part:<missing packages> or
+# none; nothing for entries without one (links, search). Packages are looked
+# up in INSTALLED_PKGS (installed_packages, read once per menu).
+is_installed() {  # is_installed ACTION; status 0 when fully installed
+    case $1 in
+        pkg:*)
+            [ -n "${INSTALLED_PKGS+x}" ] || INSTALLED_PKGS=$(installed_packages)
+            missing=
+            for pkg in ${1#pkg:}; do
+                printf '%s\n' "$INSTALLED_PKGS" | grep -qxF "$pkg" || missing="$missing $pkg"
+            done
+            if [ -z "$missing" ]; then echo all; return 0
+            elif [ "$missing" = " ${1#pkg:}" ]; then echo none
+            else echo "part:${missing# }"; fi
+            return 1 ;;
+        search|chatgpt|'') return 1 ;;
+        *) if [ -n "$(vendor_path "$1")" ]; then echo all; return 0; fi
+           echo none; return 1 ;;
+    esac
+}
+
+# The desktop file that starts command CMD: CMD.desktop, else one whose
+# Exec line runs CMD (org.pulseaudio.pavucontrol.desktop).
+desktop_file() {  # desktop_file CMD
+    dir=${ABYSS_APPLICATIONS_DIR:-/usr/share/applications}
+    [ -e "$dir/$1.desktop" ] && { printf '%s\n' "$dir/$1.desktop"; return 0; }
+    found=$(grep -lE "^Exec=(/usr/bin/)?$1( |\$)" "$dir"/*.desktop 2>/dev/null | head -n 1)
+    [ -n "$found" ] && printf '%s\n' "$found"
 }
 
 # The first package of a bundle that is a desktop application, as a command.
 app_command() {
     for pkg in $1; do
         cmd=$(printf '%s' "$pkg" | tr 'A-Z' 'a-z')
-        if has "$cmd" && [ -e "${ABYSS_APPLICATIONS_DIR:-/usr/share/applications}/$cmd.desktop" ]; then
+        if has "$cmd" && [ -n "$(desktop_file "$cmd")" ]; then
             printf '%s\n' "$cmd"; return 0
         fi
     done
     return 1
+}
+
+quote() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
+
+# How an installed entry is opened: "exec<TAB>command" for a window,
+# "term<TAB>command" for a terminal program; nothing (status 1) when the
+# entry has nothing to open (a driver bundle, git, a missing app).
+open_command() {  # open_command ACTION
+    case $1 in
+        pkg:*)
+            cmd=$(app_command "${1#pkg:}") || return 1
+            if grep -q '^Terminal=true' "$(desktop_file "$cmd")" 2>/dev/null; then
+                printf 'term\t%s\n' "$cmd"
+            else printf 'exec\t%s\n' "$cmd"; fi ;;
+        search|chatgpt) return 1 ;;
+        *)
+            path=$(vendor_path "$1"); [ -n "$path" ] || return 1
+            case $path in
+                flatpak:*) printf 'exec\tflatpak run %s\n' "${path#flatpak:}"; return 0 ;;
+            esac
+            case $1 in
+                cursor) case $path in
+                            *.AppImage) printf 'exec\t%s --appimage-extract-and-run\n' "$(quote "$path")" ;;
+                            *) printf 'exec\t%s\n' "$(quote "$path")" ;;
+                        esac ;;
+                ollama) printf 'term\t%s\n' "echo 'Ollama: start the server with \"ollama serve\", then run a model with \"ollama run llama3.2\".'; $(quote "$path") list 2>/dev/null; exec \"\${SHELL:-/bin/sh}\"" ;;
+                claude-code|opencode) printf 'term\t%s\n' "$(quote "$path")" ;;
+                *) printf 'exec\t%s\n' "$(quote "$path")" ;;
+            esac ;;
+    esac
+}
+
+launch() {  # launch "exec|term<TAB>command" NAME
+    kind=${1%%	*} cmd=${1#*	}
+    if [ "$kind" = term ]; then setsid -f st -t "$2" -e sh -c "$cmd" >/dev/null 2>&1
+    else setsid -f sh -c "$cmd" >/dev/null 2>&1; fi
+}
+
+# The entry saved under KEY: "label<TAB>action" (abyss-software --open KEY).
+find_entry() {  # find_entry KEY
+    entries "$(machine_arch)" | while IFS='	' read -r label action; do
+        [ "$(entry_key "$label" "$action")" = "$1" ] && { printf '%s\t%s\n' "$label" "$action"; break; }
+    done
+}
+
+open_entry() {  # open_entry KEY (the target of the app's keyboard shortcut)
+    line=$(find_entry "$1")
+    label=${line%%	*} action=${line#*	}
+    name=$(app_name "$label")
+    if [ -z "$line" ] || ! how=$(open_command "$action"); then
+        note "${name:-$1} is not installed" 'Open Software → Install software to install it again.'
+        return 1
+    fi
+    launch "$how" "$name"
+}
+
+# ---------------------------------------------------------------- shortcuts
+# Every app the menu can open gets a keyboard shortcut the first time it is
+# seen installed: Super+Alt+<letter>, the app's initial when free. dwm
+# binds no Super+Alt letter (only Super+Alt+Return, 0, = and -), unlike
+# Super+Shift (C closes a window, Q logs out, B, J, K, L ...); Super+Alt+
+# Shift+<letter> is the fallback. Shortcuts are records in dwm's per-user
+# file (A<TAB>id<TAB>mod<TAB>key<TAB>name<TAB>action), applied live with
+# abyss-key-capture --reload and checked against what dwm then publishes.
+SHORTCUT_DIR=${XDG_CONFIG_HOME:-$HOME/.config}/abyss
+SHORTCUT_CONF=$SHORTCUT_DIR/shortcuts.conf
+# Keys of apps that were given a shortcut: one the user cleared stays clear.
+SHORTCUT_STATE=$SHORTCUT_DIR/software-shortcuts
+SHORTCUT_MODS='72 73'   # Super+Alt, Super+Alt+Shift (X modifier masks)
+
+live_bindings() { abyss-key-capture --list 2>/dev/null; }
+
+chord() {  # chord MOD KEY -> Super+Alt+V
+    awk -v m="$1" -v k="$2" 'BEGIN {
+        r = ""; if (int(m/64)%2) r = r "Super+"; if (int(m/8)%2) r = r "Alt+"
+        if (int(m/4)%2) r = r "Ctrl+"; if (int(m)%2) r = r "Shift+"
+        if (length(k) == 1) k = toupper(k); print r k }'
+}
+
+# Letters to try for NAME: word initials, then its other letters, then a-z.
+shortcut_letters() {
+    printf '%s\n' "$1" | awk '
+        function add(c) { if (c ~ /^[a-z]$/ && !(c in seen)) { seen[c] = 1; printf "%s ", c } }
+        { s = tolower($0); n = split(s, w, /[^a-z]+/)
+          for (i = 1; i <= n; i++) add(substr(w[i], 1, 1))
+          for (i = 1; i <= length(s); i++) add(substr(s, i, 1))
+          for (i = 1; i <= 26; i++) add(substr("abcdefghijklmnopqrstuvwxyz", i, 1)) }'
+}
+
+# The shortcut of KEY in BINDINGS (abyss-key-capture --list), as text.
+shortcut_of() {  # shortcut_of KEY BINDINGS
+    rec=$(printf '%s\n' "$2" | awk -F '\t' -v id="software-$1" '$1 == "A" && $2 == id { print $3 "\t" $4; exit }')
+    [ -n "$rec" ] && chord "${rec%%	*}" "${rec#*	}"
+}
+
+# Give every app in WANTED (lines key<TAB>name) without a shortcut a free
+# one, and drop the shortcuts this script made for apps no longer installed.
+# Prints "+<TAB>chord<TAB>name" / "-<TAB>chord<TAB>name" per change. Does
+# nothing without a running Abyss dwm (no X, a console, a test).
+sync_shortcuts() {  # sync_shortcuts WANTED_FILE
+    bindings=$(live_bindings) && [ -n "$bindings" ] || return 0
+    mkdir -p "$SHORTCUT_DIR" || return 1
+    t=$(mktemp -d "${TMPDIR:-/tmp}/abyss-keys.XXXXXX") || return 1
+    printf '%s\n' "$bindings" > "$t/live"
+    [ -f "$SHORTCUT_STATE" ] && cp "$SHORTCUT_STATE" "$t/state" || : > "$t/state"
+    # ours (software-*), for apps that are gone
+    awk -F '\t' 'FILENAME == ARGV[1] { want["software-" $1] = 1; next }
+        $1 == "A" && $2 ~ /^software-/ && !($2 in want)' "$1" "$t/live" > "$t/stale"
+    # every combination in use: dwm's own (B) and application shortcuts (A)
+    awk -F '\t' '$1 == "B" && $5 != "-" { print $4 "\t" tolower($5) }
+        $1 == "A" { print $3 "\t" tolower($4) }' "$t/live" > "$t/taken"
+    : > "$t/add"
+    while IFS='	' read -r key name; do
+        [ -n "$key" ] || continue
+        awk -F '\t' -v id="software-$key" '$1 == "A" && $2 == id { f = 1 } END { exit !f }' "$t/live" && continue
+        grep -qxF "$key" "$t/state" && continue      # the user cleared it
+        pick=
+        for mod in $SHORTCUT_MODS; do
+            for letter in $(shortcut_letters "$name"); do
+                grep -qxF "$mod	$letter" "$t/taken" && continue
+                # another program (not dwm) may hold it
+                abyss-key-capture --probe "$mod" "$letter" >/dev/null 2>&1 || continue
+                pick="$mod	$letter"; break 2
+            done
+        done
+        [ -n "$pick" ] || continue
+        printf 'A\tsoftware-%s\t%s\t%s\texec:abyss-software --open %s\n' "$key" "$pick" "$name" "$key" >> "$t/add"
+        printf '%s\n' "$pick" >> "$t/taken"
+    done < "$1"
+    if [ -s "$t/stale" ] || [ -s "$t/add" ]; then
+        [ -f "$SHORTCUT_CONF" ] && cp "$SHORTCUT_CONF" "$t/old" || : > "$t/old"
+        { awk -F '\t' 'FILENAME == ARGV[1] { drop[$2] = 1; next } !($1 == "A" && ($2 in drop))' \
+              "$t/stale" "$t/old"; cat "$t/add"; } > "$t/new"
+        chmod 600 "$t/new" && cp "$t/new" "$SHORTCUT_CONF" || { rm -rf "$t"; return 1; }
+        abyss-key-capture --reload >/dev/null 2>&1
+        # dwm applies the file at once; it ignores the whole file when it is
+        # invalid, so check what it publishes and put the old file back if so
+        tries=${ABYSS_RELOAD_TRIES:-10} ok=
+        while [ "$tries" -gt 0 ]; do
+            sleep "${ABYSS_RELOAD_POLL:-0.3}"
+            live_bindings > "$t/now"
+            if awk -F '\t' 'FILENAME == ARGV[1] { add[$2] = $3 "\t" $4; next }
+                    FILENAME == ARGV[2] { gone[$2] = 1; next }
+                    $1 == "A" && ($2 in gone) { bad = 1 }
+                    $1 == "A" && ($2 in add) && add[$2] == $3 "\t" $4 { seen[$2] = 1 }
+                    END { for (k in add) if (!(k in seen)) bad = 1; exit bad }' \
+                    "$t/add" "$t/stale" "$t/now"; then ok=1; break; fi
+            tries=$((tries - 1))
+        done
+        if [ -z "$ok" ]; then
+            cp "$t/old" "$SHORTCUT_CONF"; abyss-key-capture --reload >/dev/null 2>&1
+            rm -rf "$t"; return 1
+        fi
+        awk -F '\t' '{ sub(/^software-/, "", $2); print $2 }' "$t/add" >> "$t/state"
+        awk -F '\t' '{ print "+\t" $3 "\t" $4 "\t" $5 }' "$t/add" > "$t/report"
+        awk -F '\t' '{ print "-\t" $3 "\t" $4 "\t" $5 }' "$t/stale" >> "$t/report"
+        while IFS='	' read -r sign mod key name; do
+            printf '%s\t%s\t%s\n' "$sign" "$(chord "$mod" "$key")" "$name"
+        done < "$t/report"
+    fi
+    # forget apps that are gone, so installing one again gives it a shortcut
+    awk -F '\t' 'FILENAME == ARGV[1] { want[$1] = 1; next } ($1 in want)' "$1" "$t/state" | sort -u > "$t/state.new"
+    if ! cmp -s "$t/state.new" "$SHORTCUT_STATE" 2>/dev/null; then
+        cp "$t/state.new" "$SHORTCUT_STATE" 2>/dev/null
+    fi
+    rm -rf "$t"
+}
+
+# ---------------------------------------------------------------- the menu
+# One row per entry: display label, action, state (is_installed), key, name.
+# Installed entries are marked, with their keyboard shortcut.
+menu_entries() {  # menu_entries ARCH
+    [ -n "${INSTALLED_PKGS+x}" ] || INSTALLED_PKGS=$(installed_packages)
+    rows=$(entries "$1" | while IFS='	' read -r label action; do
+        state=$(is_installed "$action")
+        key=$(entry_key "$label" "$action")
+        opens=0; [ "$state" = all ] || [ "${state#part:}" != "$state" ] &&
+            open_command "$action" >/dev/null && opens=1
+        # no empty fields: read splits on runs of tabs
+        printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$label" "$action" "${state:--}" "$key" "$(app_name "$label")" "$opens"
+    done)
+    wanted=$(mktemp "${TMPDIR:-/tmp}/abyss-wanted.XXXXXX") || return 1
+    printf '%s\n' "$rows" | awk -F '\t' '$6 == 1 { print $4 "\t" $5 }' > "$wanted"
+    if [ -z "${ABYSS_NO_SHORTCUTS:-}" ]; then
+        SHORTCUT_CHANGES=$(sync_shortcuts "$wanted")
+    fi
+    rm -f "$wanted"
+    bindings=$(live_bindings) || bindings=
+    printf '%s\n' "$rows" | while IFS='	' read -r label action state key name opens; do
+        keys=; [ "$opens" = 1 ] && [ -n "$bindings" ] && keys=$(shortcut_of "$key" "$bindings")
+        case $state in
+            all) label="$label  ✓ installed${keys:+ · $keys}" ;;
+            part:*) label="$label  (partly installed, missing: ${state#part:})${keys:+ · $keys}" ;;
+        esac
+        printf '%s\t%s\t%s\t%s\t%s\n' "$label" "$action" "$state" "$key" "$name"
+    done
+}
+
+# After an install or removal (in its terminal): shortcuts for new apps,
+# none for removed ones, and say which.
+shortcuts_after_change() {
+    [ "$(id -u)" -ne 0 ] || return 0
+    unset INSTALLED_PKGS
+    menu_entries "$(machine_arch)" >/dev/null
+    printf '%s\n' "$SHORTCUT_CHANGES" | while IFS='	' read -r sign keys name; do
+        case $sign in
+            +) echo "Keyboard shortcut: $keys opens $name" ;;
+            -) echo "Keyboard shortcut $keys ($name) removed" ;;
+        esac
+    done
 }
 
 remove_packages() {  # remove_packages "name..."
@@ -465,31 +737,147 @@ run_remove() {
     return "$status"
 }
 
-# A bundle that is already (partly) installed: offer what makes sense
-# instead of a blind install.
-installed_actions() {  # installed_actions "pkg..." STATE
-    pkgs=$1 state=$2 options=
-    if [ "$state" = all ]; then
-        cmd=$(app_command "$pkgs") && options="Open $cmd
-"
-        options="${options}Update
-Remove
-Back"
-        prompt='Installed'
-    else
-        missing=${state#part:}
-        present=
-        for pkg in $pkgs; do case " $missing " in *" $pkg "*) ;; *) present="$present $pkg" ;; esac; done
-        options="Install missing: $missing
-Remove installed parts:$present
-Back"
-        prompt='Partly installed'
+# Vendor apps this script can remove: those installed in the home folder
+# by the installers above (system-wide ones belong to their own tools).
+vendor_files() {  # vendor_files ACTION PATH -> files and folders to delete
+    case $1:$2 in
+        vscode:"$HOME/.local/opt/vscode/code")
+            printf '%s\n' "$HOME/.local/opt/vscode" "$HOME/.local/share/applications/abyss-vscode.desktop"
+            [ "$(readlink "$HOME/.local/bin/code" 2>/dev/null)" = "$HOME/.local/opt/vscode/code" ] && echo "$HOME/.local/bin/code" ;;
+        cursor:"$HOME/.local/opt/cursor.AppImage")
+            printf '%s\n' "$2" "$HOME/.local/share/applications/cursor.desktop"
+            [ -L "$HOME/.local/bin/cursor" ] && echo "$HOME/.local/bin/cursor" ;;
+        artcraft:"$HOME/.local/opt/artcraft-launcher.AppImage")
+            printf '%s\n' "$2" "$HOME/.local/share/applications/artcraft-launcher.desktop"
+            [ -L "$HOME/.local/bin/artcraft-launcher" ] && echo "$HOME/.local/bin/artcraft-launcher" ;;
+        claude-code:"$HOME/.local/bin/claude")       # the native installer's layout
+            printf '%s\n' "$2" "$HOME/.local/share/claude" ;;
+        opencode:"$HOME/.opencode/bin/opencode")
+            printf '%s\n' "$HOME/.opencode" ;;
+        *) return 1 ;;
+    esac
+}
+
+run_vendor_remove() {  # run_vendor_remove ACTION NAME
+    path=$(vendor_path "$1")
+    files=$(vendor_files "$1" "$path") || { echo "$2 was not installed by Install software; remove it with the tool that installed it."; return 1; }
+    printf '%s\n' "$files" | while IFS= read -r f; do
+        [ -n "$f" ] || continue
+        echo "Removing $f"; rm -rf "$f"
+    done
+    echo
+    echo '==================== Summary ===================='
+    if [ -z "$(vendor_path "$1")" ]; then echo "Removed: $2"; else echo "$2 is still installed at $(vendor_path "$1")."; fi
+    shortcuts_after_change
+}
+
+vendor_name() { line=$(catalog | awk -F '\t' -v a="$1" '$2 == a { print $1; exit }'); app_name "${line:-$1}"; }
+
+# Runs in the install terminal: optionally Git first (it needs the password,
+# then the long download can run unattended), then the vendor installer.
+run_vendor_install() {  # run_vendor_install ACTION [--with-git]
+    ABYSS_IN_TERMINAL=1
+    action=$1 name=$(vendor_name "$1")
+    if [ "${2:-}" = --with-git ]; then
+        echo "Installing Git (Source Control in $name needs it)..."
+        run_install git || echo 'Git was not installed; you can add it later from Install software.'
+        echo
     fi
-    choice=$(printf '%s\n' "$options" | choose -p "$prompt") || return 1
+    case $action in
+        vscode) install_vscode ;; artcraft) install_artcraft ;; cursor) install_cursor ;;
+        ollama) install_ollama ;; claude-code) install_claude_code ;; opencode) install_opencode ;;
+        *) echo "Unknown app: $action"; return 2 ;;
+    esac
+    rc=$?
+    echo
+    echo '==================== Summary ===================='
+    if path=$(vendor_path "$action") && [ -n "$path" ]; then echo "Installed: $name ($path)"; rc=0
+    else echo "Not installed: $name (see the messages above)"; [ "$rc" -ne 0 ] || rc=1; fi
+    shortcuts_after_change
+    return "$rc"
+}
+
+# Before installing an editor, offer Git with it: Source Control needs it.
+offer_vendor_install() {  # offer_vendor_install ACTION NAME
+    git=
+    case $1 in
+        vscode|cursor)
+            if ! is_installed pkg:git >/dev/null; then
+                answer=$(printf 'Install %s + Git (Source Control needs Git)\nInstall %s only\nCancel\n' "$2" "$2" |
+                    choose -p "$2") || return 1
+                case $answer in *'+ Git'*) git=--with-git ;; 'Install '*) ;; *) return 1 ;; esac
+            fi ;;
+        ollama)
+            [ "$(printf 'Install latest Ollama\nCancel\n' | choose -p 'This runs Ollama’s official system installer')" = 'Install latest Ollama' ] || return 1 ;;
+        claude-code)
+            [ "$(printf 'Install latest Claude Code CLI\nCancel\n' | choose -p 'This installs to your home directory')" = 'Install latest Claude Code CLI' ] || return 1 ;;
+        opencode)
+            [ "$(printf 'Install latest OpenCode CLI\nCancel\n' | choose -p 'This installs to your home directory')" = 'Install latest OpenCode CLI' ] || return 1 ;;
+    esac
+    term "Install $2" "/bin/sh '$SELF' --run-vendor-install $1 $git"
+}
+
+official_page() {
+    case $1 in
+        chrome) echo 'https://www.google.com/chrome/' ;;
+        antigravity) echo 'https://antigravity.google/download?os=linux' ;;
+        chatgpt) echo 'https://chatgpt.com' ;;
+    esac
+}
+
+change_shortcut() {  # change_shortcut KEY NAME
+    mkdir -p "$SHORTCUT_DIR" && { grep -qxF "$1" "$SHORTCUT_STATE" 2>/dev/null || echo "$1" >> "$SHORTCUT_STATE"; }
+    setsid -f abyss-shortcut-editor --app "software-$1" "$2" "exec:abyss-software --open $1" >/dev/null 2>&1
+}
+
+# An installed (or partly installed) entry: open, update, remove, change its
+# shortcut. Returns 0 when a terminal or app was opened (the menu closes).
+entry_actions() {  # entry_actions ACTION STATE KEY NAME
+    action=$1 state=$2 key=$3 name=$4 options=
+    how=$(open_command "$action") || how=
+    case $action in pkg:*) pkgs=${action#pkg:}; opener="Open ${how#*	}" ;; *) opener="Open $name" ;; esac
+    [ -n "$how" ] && options="$opener
+"
+    prompt="$name: installed"
+    case $state in
+        part:*)
+            missing=${state#part:} present=
+            for pkg in $pkgs; do case " $missing " in *" $pkg "*) ;; *) present="$present $pkg" ;; esac; done
+            options="${options}Install missing: $missing
+Remove installed parts:$present
+"
+            prompt="$name: partly installed" ;;
+        *)
+            options="${options}Update
+"
+            case $action in
+                vscode|cursor) is_installed pkg:git >/dev/null || options="${options}Install Git (Source Control needs it)
+" ;;
+            esac
+            case $action in
+                pkg:*) options="${options}Remove
+" ;;
+                *) vendor_files "$action" "$(vendor_path "$action")" >/dev/null && options="${options}Remove
+" ;;
+            esac ;;
+    esac
+    [ -n "$how" ] && live_bindings >/dev/null && options="${options}Change shortcut…
+"
+    choice=$(printf '%sBack\n' "$options" | choose -p "$prompt") || return 1
     case $choice in
-        "Open "*) setsid -f "${choice#Open }" >/dev/null 2>&1 ;;
-        Update) term 'Update software' "/bin/sh '$SELF' --run-install --update $pkgs" ;;
-        Remove) remove_packages "$pkgs" ;;
+        "$opener") launch "$how" "$name" ;;
+        Update) case $action in
+                    pkg:*) term 'Update software' "/bin/sh '$SELF' --run-install --update $pkgs" ;;
+                    chrome|antigravity) open_official_page "$(official_page "$action")" ;;
+                    *) term "Update $name" "/bin/sh '$SELF' --run-vendor-install $action" ;;
+                esac ;;
+        'Install Git'*) install_packages git ;;
+        Remove) case $action in
+                    pkg:*) remove_packages "$pkgs" ;;
+                    *) [ "$(printf 'Remove %s\nCancel\n' "$name" | choose -p "Remove $name?")" = "Remove $name" ] || return 1
+                       term "Remove $name" "/bin/sh '$SELF' --run-vendor-remove $action" ;;
+                esac ;;
+        'Change shortcut…') change_shortcut "$key" "$name" ;;
         'Install missing: '*) install_packages "$missing" ;;
         'Remove installed parts:'*) remove_packages "${present# }" ;;
         *) return 1 ;;
@@ -499,32 +887,35 @@ Back"
 case "${1:-}" in
     --search) search_packages; exit 0 ;;
     --list-entries) entries "${2:-$(machine_arch)}"; exit 0 ;;
-    --run-install) shift; run_install "$@"; exit $? ;;
-    --run-remove) shift; run_remove "$@"; exit $? ;;
+    --run-install) shift; run_install "$@"; rc=$?; shortcuts_after_change; exit $rc ;;
+    --run-remove) shift; run_remove "$@"; rc=$?; shortcuts_after_change; exit $rc ;;
+    --run-vendor-install) shift; run_vendor_install "$@"; exit $? ;;
+    --run-vendor-remove) [ -n "${2:-}" ] || exit 2; run_vendor_remove "$2" "$(vendor_name "$2")"; exit $? ;;
     --install) [ -n "${2:-}" ] || exit 2; install_packages "$2"; exit $? ;;
+    --open) [ -n "${2:-}" ] || exit 2; open_entry "$2"; exit $? ;;
+    --assign-shortcuts) shortcuts_after_change; exit 0 ;;
+    --installed) INSTALLED_PKGS=$(installed_packages)   # key, state, shortcut per entry
+                 menu_entries "${2:-$(machine_arch)}" | awk -F '\t' '{ print $4 "\t" $3 "\t" $1 }'; exit 0 ;;
 esac
 
 while :; do
-    menu=$(menu_entries "$(machine_arch)")   # re-read: an install may have finished
+    unset INSTALLED_PKGS   # re-read: an install may have finished
+    menu=$(menu_entries "$(machine_arch)")
     selection=$(printf '%s\n' "$menu" | cut -f1 | choose -p 'Software (type to filter)') || exit 0
     line=$(printf '%s\n' "$menu" | awk -F '\t' -v label="$selection" '$1 == label { print; exit }')
+    [ -n "$line" ] || exit 0
     action=$(printf '%s\n' "$line" | cut -f2)
     state=$(printf '%s\n' "$line" | cut -f3)
+    key=$(printf '%s\n' "$line" | cut -f4)
+    name=$(printf '%s\n' "$line" | cut -f5)
+    # Close the menu once a terminal or the app is open, so it gets the focus.
+    case $state in
+        all|part:*) entry_actions "$action" "$state" "$key" "$name" && exit 0; continue ;;
+    esac
     case "$action" in
-        # Close the menu once a terminal is open, so it can take the password.
-        pkg:*) case $state in
-                   all|part:*) installed_actions "${action#pkg:}" "$state" && exit 0 ;;
-                   *) install_packages "${action#pkg:}" && exit 0 ;;
-               esac ;;
-        chrome) open_official_page 'https://www.google.com/chrome/' ;;
-        vscode) install_vscode ;;
-        artcraft) install_artcraft ;;
-        ollama) install_ollama ;;
-        claude-code) install_claude_code ;;
-        opencode) install_opencode ;;
-        antigravity) open_official_page 'https://antigravity.google/download?os=linux' ;;
-        cursor) install_cursor ;;
-        chatgpt) open_official_page 'https://chatgpt.com' ;;
+        pkg:*) install_packages "${action#pkg:}" && exit 0 ;;
+        chrome|antigravity|chatgpt) open_official_page "$(official_page "$action")" ;;
+        vscode|artcraft|ollama|claude-code|opencode|cursor) offer_vendor_install "$action" "$name" && exit 0 ;;
         search) search_packages && exit 0 ;;
         *) exit 0 ;;
     esac

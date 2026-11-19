@@ -38,9 +38,9 @@ fi
 version=$(tr -d ' \n' < "$(dirname "$0")/../VERSION")
 grep -Fx "VERSION_ID=\"$version\"" "$work/root/usr/lib/os-release"
 grep -q 'Text size: automatic' "$work/root/usr/bin/abyss-control-center"
-xbps-query -r "$work/root" -p pkgver abyss-desktop | grep -Fx 'abyss-desktop-1.0_38'
+xbps-query -r "$work/root" -p pkgver abyss-desktop | grep -Fx 'abyss-desktop-1.0_40'
 xbps-query -r "$work/root" -p pkgver abyss-slock | grep -Fx 'abyss-slock-1.7_2'
-xbps-query -r "$work/root" -p pkgver abyss-st | grep -Fx 'abyss-st-0.9.3_2'
+xbps-query -r "$work/root" -p pkgver abyss-st | grep -Fx 'abyss-st-0.9.3_3'
 xbps-query -r "$work/root" -p pkgver abyss-dwm | grep -Fx 'abyss-dwm-6.8_10'
 test -x "$work/root/usr/bin/abyss-record"
 test -f "$work/root/etc/skel/.config/zathura/zathurarc"
@@ -92,7 +92,7 @@ if [ -e "$work/root/etc/runit/runsvdir/default/elogind" ] || [ -L "$work/root/et
     echo 'elogind is enabled as a runit service (it must be left to D-Bus activation)' >&2
     exit 1
 fi
-for sv in dbus polkit NetworkManager lightdm chronyd; do
+for sv in dbus polkit NetworkManager lightdm chronyd abyss-fstrim; do
     test -L "$work/root/etc/runit/runsvdir/default/$sv"
 done
 # Time synchronisation: chrony enabled (installed systems inherit the link),
@@ -103,6 +103,11 @@ test -f "$work/root/etc/sv/chronyd/run"
 grep -Fq 'OPTS="-f /usr/share/abyss/chrony.conf"' "$work/root/etc/sv/chronyd/conf"
 grep -Fxq 'include /etc/chrony.conf' "$work/root/usr/share/abyss/chrony.conf"
 test -f "$work/root/var/lib/abyss-desktop/time-sync-enabled"
+# Disk upkeep: weekly TRIM service (enabled above, with its once-per-system
+# stamp) and the helper that cleans the package cache after updates
+test -x "$work/root/usr/libexec/abyss-desktop/disk-care"
+grep -Fq 'disk-care trim-service' "$work/root/etc/sv/abyss-fstrim/run"
+test -f "$work/root/var/lib/abyss-desktop/fstrim-enabled"
 # /usr/local/bin: every abyss-desktop command is the managed wrapper, exactly
 # what INSTALL leaves on an updated system, never a full copy that shadows
 # the package; nothing else is there but the void-installer link

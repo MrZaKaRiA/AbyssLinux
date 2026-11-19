@@ -88,7 +88,9 @@ PKGS_BUILD="base-system curl ca-certificates xorg-minimal xss-lock xf86-video-fb
 # runit service made runit retry every second forever ("already running").
 # chrony keeps the clock right (TLS and package signatures need it); chronyd
 # is enabled here and, on systems installed earlier, by abyss-desktop's INSTALL.
-SERVICES_BUILD="dbus polkit NetworkManager lightdm chronyd"
+# abyss-fstrim (abyss-desktop): weekly TRIM, so SSDs stay fast and VM disk
+# images shrink after files are deleted; enabled the same way.
+SERVICES_BUILD="dbus polkit NetworkManager lightdm chronyd abyss-fstrim"
 build_failed=0
 rm -f /workspace/.abyss-build-result
 

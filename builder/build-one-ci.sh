@@ -25,10 +25,12 @@ cd "$work/void-mklive"
 # runit service made runit retry every second forever ("already running").
 # chrony keeps the clock right (TLS and package signatures need it); chronyd
 # is enabled here and, on systems installed earlier, by abyss-desktop's INSTALL.
+# abyss-fstrim (abyss-desktop): weekly TRIM, so SSDs stay fast and VM disk
+# images shrink after files are deleted; enabled the same way.
 ./mklive.sh -a "$arch" -r 'https://mrzakaria.github.io/AbyssLinuxPMR/current' \
     -i gzip -s zstd -o "$root/out/abyss-linux-${version}-${arch}.iso" \
     -I "$root/custom-overlay" -p "$packages" \
-    -S 'dbus polkit NetworkManager lightdm chronyd' \
+    -S 'dbus polkit NetworkManager lightdm chronyd abyss-fstrim' \
     -C 'quiet splash loglevel=3 rd.udev.log_level=3 udev.log_level=3 vt.global_cursor_default=0 plymouth.ignore-serial-consoles' \
     -x "$root/builder/abyss-postsetup.sh" -T 'Abyss Linux Minimal Suckless Desktop'
 test -s "$root/out/abyss-linux-${version}-${arch}.iso"

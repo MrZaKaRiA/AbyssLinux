@@ -38,7 +38,9 @@ ALL_PACKAGES="${PKGS_BASE_X11} ${PKGS_INSTALLER} ${PKGS_SUCKLESS}"
 # runit service made runit retry every second forever ("already running").
 # chrony keeps the clock right (TLS and package signatures need it); chronyd
 # is enabled here and, on systems installed earlier, by abyss-desktop's INSTALL.
-ENABLED_SERVICES="dbus polkit NetworkManager lightdm chronyd"
+# abyss-fstrim (abyss-desktop): weekly TRIM, so SSDs stay fast and VM disk
+# images shrink after files are deleted; enabled the same way.
+ENABLED_SERVICES="dbus polkit NetworkManager lightdm chronyd abyss-fstrim"
 
 # Silent boot (later loglevel= overrides mklive's built-in loglevel=4)
 # splash: the Abyss logo (plymouth, from abyss-boot); plymouth.ignore-serial-consoles:

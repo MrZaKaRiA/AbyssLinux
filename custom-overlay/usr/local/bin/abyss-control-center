@@ -12,7 +12,7 @@
 #   Media         images, screenshots, screen recording, play a copied URL
 #   Software      install software, search Void packages, update
 #   Settings      Network · Sound · Display · Keyboard
-#   System        monitor, info, disks, services, power diagnostics
+#   System        monitor, info, disks, free up space, services, power diagnostics
 #   Search menu…  the same entries as a dmenu list: type to find any of them
 #   Session       lock, suspend, hibernate, log out, restart, shut down
 #
@@ -66,6 +66,9 @@ term() {  # term "Title" command...
 term_hold() {  # term_hold "Title" "shell code"
     term "$1" sh -c "$2; echo; printf 'Press Enter to close '; read _"
 }
+
+# Package cache cleaning, unneeded packages, old kernels and TRIM (abyss-desktop)
+DISK_CARE=/usr/libexec/abyss-desktop/disk-care
 
 # Privilege helper for terminal actions: doas when configured, else sudo.
 priv() {
@@ -220,6 +223,7 @@ __DISPLAY_SCALE_ROWS__
 	󰄨  System monitor	monitor
 	  About this computer	info
 	󰋊  Disks and free space	disks
+	󰃢  Free up disk space	free-space
 	  Running services	services
 	  Power diagnostics	power-diag
 
@@ -468,7 +472,10 @@ act() {
                       else term "System monitor" top; fi ;;
         info)         term_hold "About this computer" 'fastfetch 2>/dev/null || uname -a' ;;
         update)       p=$(priv)   # one privileged shell: the password is asked once
-                      term_hold "Abyss System Update" "$p sh -c 'xbps-install -Su && xbps-remove -Oo' && echo 'System is up to date.'" ;;
+                      # then drop replaced package versions from the cache (it
+                      # names unneeded packages instead of removing them)
+                      term_hold "Abyss System Update" "$p sh -c 'xbps-install -Su && $DISK_CARE clean-cache' && echo 'System is up to date.'" ;;
+        free-space)   term_hold "Free up disk space" "$(priv) $DISK_CARE free-space" ;;
         disks)        term_hold "Disks" 'df -h -x tmpfs -x devtmpfs -x efivarfs; echo; lsblk -o NAME,SIZE,FSTYPE,MOUNTPOINTS' ;;
         services)     term_hold "Services" 'sv status /var/service/* 2>/dev/null | sed "s|/var/service/||"' ;;
         power-diag)   term_hold "Power diagnostics" 'abyss-power diagnose' ;;

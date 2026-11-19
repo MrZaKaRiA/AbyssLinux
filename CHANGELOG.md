@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+* **Disk space stays under control:** after every successful upgrade or install, replaced package versions are removed from the package cache and the freed space is shown (current packages stay for offline reinstalls). Update system no longer removes unneeded packages without asking; it lists them, and `cleanup` removes them.
+* New weekly TRIM service `abyss-fstrim`: keeps SSDs fast and lets virtual machine disk images shrink after files are deleted. Enabled once on existing systems and in new images; log in `/var/log/abyss-fstrim.log`; turn it off with `doas rm /var/service/abyss-fstrim`.
+* New **System › Free up disk space**: package cache, old kernels and unneeded packages, each removed only after asking, then TRIM, with one password prompt.
 * **Install software knows what you have:** every installed app shows "✓ installed", including VS Code, Cursor, ArtCraft, Ollama, Claude Code, OpenCode, Chrome and Antigravity, wherever they were installed. Clicking it offers Open, Update, Remove and Change shortcut…; vendor apps install in a terminal with progress instead of silently.
 * New "Git (version control)" entry; VS Code and Cursor offer to install Git with them so Source Control works.
 * **Every installed app gets a keyboard shortcut:** a free Super+Alt+letter (its initial when possible), shown as "✓ installed · Super+Alt+V", applied immediately, changeable or clearable, and removed with the app.
