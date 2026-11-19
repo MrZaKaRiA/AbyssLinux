@@ -71,12 +71,19 @@ fi
 if [ -z "${ABYSS_LOCK_LISTENER_STARTED:-}" ] && command -v xss-lock >/dev/null 2>&1 && command -v slock >/dev/null 2>&1 && ! pgrep -u "$(id -u)" -x xss-lock >/dev/null 2>&1; then
     xss-lock --transfer-sleep-lock -- slock &
 fi
+# dwm shows "dwm-6.8" as its status text until the root window has a name:
+# an empty one until the status bar's first line, a moment later.
+command -v xsetroot >/dev/null 2>&1 && xsetroot -name " "
 /usr/local/bin/dwm-statusbar &
 
-# Desktop background: the Abyss wallpaper, or the choice saved in
-# ~/.config/abyss/wallpaper ("none" for plain black, or the path of an image).
-if command -v abyss-wallpaper >/dev/null 2>&1; then abyss-wallpaper &
-else xsetroot -solid "#000000" & fi
+# Desktop background, drawn before dwm shows anything: the Abyss wallpaper,
+# or the choice saved in ~/.config/abyss/wallpaper ("none" for plain black, or
+# the path of an image). After the login screen abyss-session drew it already.
+if [ -z "${ABYSS_WALLPAPER_DRAWN:-}" ]; then
+    if command -v abyss-wallpaper >/dev/null 2>&1; then abyss-wallpaper
+    else xsetroot -solid "#000000"; fi
+fi
+unset ABYSS_WALLPAPER_DRAWN
 
 # Offer the optional setup window on first login (the user can defer it).
 command -v abyss-setup >/dev/null 2>&1 && abyss-setup --first-run &

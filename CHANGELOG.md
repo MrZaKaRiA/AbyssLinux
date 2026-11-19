@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+* Logging in no longer flashes the default Abyss galaxy wallpaper before your own: the desktop's first frame shows the wallpaper you chose (or black), and the bar no longer shows "dwm-6.8" while it starts.
+* Login files from older Abyss images (`~/.xinitrc`, `~/.dwm/autostart.sh`) that you never edited are updated to the current version at your next login; the old copy is kept as `*.abyss-old`. Files you edited are never changed, and their old wallpaper line now draws your chosen wallpaper. abyss-desktop ships the current login files in `/usr/share/abyss/skel` so updates reach existing installs.
 * The shell helpers no longer print "Syntax error: Bad function name" in the emergency shell or any `sh -l`: `/etc/profile.d/zz-abyss-cli.sh` is plain POSIX sh, and the bash-only parts (`pkg-ui`, the prompt) moved to `/usr/share/abyss/abyss-cli.bash`, which only bash loads.
 * Updating removes the broken `/usr/local/bin/void-installer` link installed systems kept from the live ISO, and new installs no longer copy it.
 * **Clean, quiet start:** the Abyss logo on black from GRUB until the login screen, with no galaxy picture, progress bar or boot text. Boot text still appears when something fails, and Esc opens the GRUB menu. New package `abyss-boot` (plymouth theme and logo); abyss-desktop depends on it, so existing installs get the new start with the next update. Your own `GRUB_BACKGROUND`, GRUB theme or plymouth theme is kept.

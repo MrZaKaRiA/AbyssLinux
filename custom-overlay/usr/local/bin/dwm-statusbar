@@ -431,7 +431,8 @@ PREV_T=${EPOCHREALTIME/[.,]/}       # microseconds
 HAVE_WPCTL= HAVE_XKBSWITCH= LAST= TICK=0 REFRESH=0 SLEEPER=
 
 if [[ -z "$ONCE" ]]; then
-    sleep 1
+    # the first CPU sample: short, so the bar fills in right after login
+    sleep 0.2
     DISPLAY_PICKER="${XDG_RUNTIME_DIR:-$HOME/.cache}/abyss-display.pid"
     DISPLAY_JOB=; DISPLAY_PENDING=; DISPLAY_XR=; DISPLAY_TICK=0; DISPLAY_VIRTUAL=
     DISPLAY_BUDGET=4; DISPLAY_REFILL=0

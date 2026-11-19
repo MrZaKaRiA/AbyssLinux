@@ -29,12 +29,64 @@ export ADW_DEBUG_COLOR_SCHEME
 # Repair the historical broken config before the desktop starts so direct
 # rofi calls and old hotkeys benefit too, while leaving custom configs alone.
 command -v abyss-rofi-repair >/dev/null 2>&1 && abyss-rofi-repair >/dev/null 2>&1 || :
-# A ~/.xinitrc copied before 27.3.3 draws the wallpaper itself; this makes a
-# saved background choice (~/.config/abyss/wallpaper) win over it.
+# ---- Login files from older images -------------------------------------------
+# ~/.xinitrc and ~/.dwm/autostart.sh are copies of /etc/skel made when the
+# user was created, so no update reached them; the ones from images before
+# 27.3.3 draw the Abyss wallpaper over the user's own after login. A copy that
+# is byte-identical to a version an Abyss image shipped (the sha256 of every
+# version in AbyssLinux's history) becomes the current one from abyss-desktop
+# ($SKEL); the old file is kept as <file>.abyss-old. Edited files are kept.
+SKEL="${ABYSS_SKEL_DIR:-/usr/share/abyss/skel}"
+update_login_file() {
+    cur="$HOME/$1" new="$SKEL/$1"
+    [ -f "$new" ] && [ -f "$cur" ] && [ ! -L "$cur" ] || return 0
+    cmp -s "$cur" "$new" && return 0
+    case "$(sha256sum < "$cur" 2>/dev/null)" in
+    23976a2df6b66deaa224a28d93672dd622b86b4b599382b0aac3da0e357f870e*|\
+    ab6bb00091a2061403c58b5d626ab0e3764db571d9510cedb85b8a93b0123d85*|\
+    da2bfc6c7835c8a0e3d0691e5d59c05c85fb09689351ef2efd64c53feb9dd2d0*|\
+    3ea51b8a08c6895438c79bccb102c291d739ad6d15cc53bd4a2c40713ce2db6f*|\
+    52b77de39ff745b04bda5a964db73c33d7cc18fc4490e29ecaa4cfc32b296920*|\
+    9706c30a5386f6545f5c30ca64bf6818ceb823efb532819fc40dfe938a1fe992*|\
+    73e512f52011c8b80ce8fe761161b5cf09fc359ceeca7cb87b21197429c81806*) ;;   # .xinitrc
+    db3301467e9d1bc48cd71e40e761fff82bb1cc0d904dfb49bb349c92533d5c2b*|\
+    9fc7588af450ddb5af2a92617875a83572f9a8ac54a3ad5f922ee92e86d9772d*) ;;   # .dwm/autostart.sh
+    *) return 0 ;;
+    esac
+    tmp=$(mktemp "$cur.XXXXXX" 2>/dev/null) || return 0
+    if cat "$new" > "$tmp" && chmod 0755 "$tmp" && cp -p "$cur" "$cur.abyss-old" && mv -f "$tmp" "$cur"; then
+        echo "abyss-session: updated ~/$1 to the current Abyss version (the old one is ~/$1.abyss-old)" >&2
+    else
+        rm -f "$tmp"
+    fi
+}
+update_login_file .xinitrc
+update_login_file .dwm/autostart.sh
+
+# dwm shows "dwm-6.8" as its status text until the root window has a name:
+# an empty one until the status bar's first line.
+command -v xsetroot >/dev/null 2>&1 && xsetroot -name " " 2>/dev/null
+# The user's background before the desktop draws anything (only the login
+# screen's picture is on the screen now); ~/.xinitrc does not draw it again.
+if command -v abyss-wallpaper >/dev/null 2>&1 && abyss-wallpaper >/dev/null 2>&1; then
+    export ABYSS_WALLPAPER_DRAWN=1
+fi
+# An edited ~/.xinitrc or ~/.dwm/autostart.sh from before 27.3.3 still runs
+# `feh --bg-fill <the Abyss wallpaper>`. For those only, a feh first in PATH
+# turns exactly that command into abyss-wallpaper (the saved choice); every
+# other feh command runs feh unchanged.
+LEGACY="${ABYSS_LEGACY_DIR:-/usr/libexec/abyss-desktop/legacy}"
+if [ -x "$LEGACY/feh" ] && grep -qsF 'feh --bg-fill /usr/share/backgrounds/abyss/abyss-wallpaper.jpg' "$HOME/.xinitrc" "$HOME/.dwm/autostart.sh"; then
+    PATH="$LEGACY:$PATH"
+    export PATH
+fi
+# Should such a file call feh some other way, the saved choice is drawn again
+# once dwm and that feh have started.
 command -v abyss-wallpaper >/dev/null 2>&1 && abyss-wallpaper --legacy >/dev/null 2>&1 &
 # Your own wallpapers: copy images here, or use Menu > Settings > Display > Wallpaper…
 mkdir -p "$HOME/.local/share/backgrounds" 2>/dev/null
 if [ -f "$HOME/.xinitrc" ]; then
     exec /bin/sh "$HOME/.xinitrc"
 fi
+[ -f "$SKEL/.xinitrc" ] && exec /bin/sh "$SKEL/.xinitrc"
 exec /bin/sh /etc/skel/.xinitrc
