@@ -11,8 +11,9 @@ NB='#0d0b18' NF='#f3e8ff' SB='#a855f7' SF='#090514'
 choose() { dmenu -i -c -l 14 -fn "$FONT" -nb "$NB" -nf "$NF" -sb "$SB" -sf "$SF" "$@"; }
 has() { command -v "$1" >/dev/null 2>&1; }
 notify() { has notify-send && notify-send -a Abyss 'Abyss setup' "$1" || echo "$1"; }
-term() { setsid -f st -t "$1" -e sh -c "$2; echo; printf 'Press Enter to close '; read _" >/dev/null 2>&1; }
-priv() { abyss-priv "$@"; }
+# The terminal is waited for, so this menu comes back once it is closed
+# instead of covering it (and its password prompt) with the keyboard grabbed.
+term() { st -t "$1" -e sh -c "$2; echo; printf 'Press Enter to close '; read _" >/dev/null 2>&1; }
 
 set_keyboard() {
     layout=$(printf '%s\n' 'English (US) — us' 'Arabic (standard) — ara' 'French (France) — fr' 'English + Arabic — us,ara' | choose -p 'Keyboard layout') || return
@@ -60,7 +61,8 @@ service_setup() {
     [ -n "$service" ] || return
     case "$service" in *[!A-Za-z0-9_.-]*) notify 'Invalid service name.'; return 1 ;; esac
     if [ -d "/etc/sv/$service" ]; then
-        priv ln -s "/etc/sv/$service" "/var/service/$service" && notify "$service will start now and at boot."
+        # in a terminal: doas has nowhere to ask for the password without one
+        term "Enable $service" "abyss-priv ln -s '/etc/sv/$service' '/var/service/$service' && echo '$service will start now and at boot.'"
     fi
 }
 
@@ -68,7 +70,8 @@ menu() {
     while :; do
         item=$(printf '%s\n' 'Install software' 'Keyboard layout' 'Optional repositories' 'Enable a service' 'Display setup' 'Done' | choose -p 'Abyss setup') || return
         case "$item" in
-            'Install software') abyss-software ;;
+            # waits for the install terminal or app it opens (see abyss-software)
+            'Install software') ABYSS_SOFTWARE_WAIT=1 abyss-software ;;
             'Keyboard layout') set_keyboard ;;
             'Optional repositories') optional_repos ;;
             'Enable a service') service_setup ;;

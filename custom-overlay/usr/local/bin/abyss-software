@@ -11,7 +11,18 @@ FONT='JetBrainsMono Nerd Font:size=10'
 
 has() { command -v "$1" >/dev/null 2>&1; }
 choose() { dmenu -i -c -l 13 -fn "$FONT" -nb "$NB" -nf "$NF" -sb "$SB" -sf "$SF" "$@"; }
-term() { setsid -f st -t "$1" -e sh -c "$2; echo; printf 'Press Enter to close '; read _" >/dev/null 2>&1; }
+# A window (terminal, app, browser, shortcut editor) is started on its own,
+# so this menu can close and the window gets the focus. Run from the setup
+# menu (abyss-setup sets ABYSS_SOFTWARE_WAIT=1) it is waited for instead:
+# the setup menu comes back once the window is closed, not over the password
+# prompt of an install terminal. Not passed on to what the window runs.
+WAIT_WINDOW=${ABYSS_SOFTWARE_WAIT:-}
+unset ABYSS_SOFTWARE_WAIT
+window() {
+    if [ -n "$WAIT_WINDOW" ]; then "$@" >/dev/null 2>&1; return 0; fi
+    setsid -f "$@" >/dev/null 2>&1
+}
+term() { window st -t "$1" -e sh -c "$2; echo; printf 'Press Enter to close '; read _"; }
 priv() { abyss-priv "$@"; }
 note() {
     if [ -n "${ABYSS_IN_TERMINAL:-}" ]; then printf '%s: %s\n' "$1" "${2:-}"
@@ -379,7 +390,7 @@ install_opencode() {
 open_official_page() {
     url=$1
     for browser in firefox google-chrome chromium; do
-        if has "$browser"; then setsid -f "$browser" "$url" >/dev/null 2>&1; return; fi
+        if has "$browser"; then window "$browser" "$url"; return; fi
     done
     term 'Official download' "printf '%s\\n\\n' 'Open this official page after installing a browser:' '$url'; printf 'Press Enter to close '; read _"
 }
@@ -616,8 +627,8 @@ open_command() {  # open_command ACTION
 
 launch() {  # launch "exec|term<TAB>command" NAME
     kind=${1%%	*} cmd=${1#*	}
-    if [ "$kind" = term ]; then setsid -f st -t "$2" -e sh -c "$cmd" >/dev/null 2>&1
-    else setsid -f sh -c "$cmd" >/dev/null 2>&1; fi
+    if [ "$kind" = term ]; then window st -t "$2" -e sh -c "$cmd"
+    else window sh -c "$cmd"; fi
 }
 
 # The entry saved under KEY: "label<TAB>action" (abyss-software --open KEY).
@@ -926,7 +937,7 @@ official_page() {
 
 change_shortcut() {  # change_shortcut KEY NAME
     mkdir -p "$SHORTCUT_DIR" && { grep -qxF "$1" "$SHORTCUT_STATE" 2>/dev/null || echo "$1" >> "$SHORTCUT_STATE"; }
-    setsid -f abyss-shortcut-editor --app "software-$1" "$2" "exec:abyss-software --open $1" >/dev/null 2>&1
+    window abyss-shortcut-editor --app "software-$1" "$2" "exec:abyss-software --open $1"
 }
 
 # An installed (or partly installed) entry: open, update, remove, change its

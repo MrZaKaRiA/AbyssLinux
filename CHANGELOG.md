@@ -2,6 +2,7 @@
 
 ## v27.3.5 (2026-11-19)
 
+* Setup no longer covers the password prompt: after picking software or a repository in the setup menu, the install terminal keeps the keyboard and the setup menu returns once it is closed; "Enable a service" now asks for the password in a terminal instead of failing silently.
 * **System log kept across restarts:** Abyss now enables Void's socklog (once per system, unless you use another system logger), so if the system ever freezes and has to be restarted, the kernel's messages from before the freeze are in `/var/log/socklog` (read them with `svlogtail` as root).
 * Installing Audio support (Install software, or `install pipewire` in a terminal) turns sound on right away: the bar shows the volume and Super+Alt+A opens a working mixer without logging out and back in.
 * **Sound after logging out and back in:** the volume block and sound controls no longer disappear after a logout. Abyss starts PipeWire fresh for each session and stops it at logout; older `~/.xinitrc` files are updated automatically (your own edits are kept, with a backup).
