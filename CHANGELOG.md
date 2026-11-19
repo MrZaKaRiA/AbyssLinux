@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+* **Install software knows what you have:** every installed app shows "✓ installed", including VS Code, Cursor, ArtCraft, Ollama, Claude Code, OpenCode, Chrome and Antigravity, wherever they were installed. Clicking it offers Open, Update, Remove and Change shortcut…; vendor apps install in a terminal with progress instead of silently.
+* New "Git (version control)" entry; VS Code and Cursor offer to install Git with them so Source Control works.
+* **Every installed app gets a keyboard shortcut:** a free Super+Alt+letter (its initial when possible), shown as "✓ installed · Super+Alt+V", applied immediately, changeable or clearable, and removed with the app.
 * Terminal (st): selected text is highlighted in Abyss purple (white on #7c3aed) instead of a bright white block, and selecting text a program shows in reverse video (`less` search hits, vim's status line) no longer turns it dark.
 * Logging in no longer flashes the default Abyss galaxy wallpaper before your own: the desktop's first frame shows the wallpaper you chose (or black), and the bar no longer shows "dwm-6.8" while it starts.
 * Login files from older Abyss images (`~/.xinitrc`, `~/.dwm/autostart.sh`) that you never edited are updated to the current version at your next login; the old copy is kept as `*.abyss-old`. Files you edited are never changed, and their old wallpaper line now draws your chosen wallpaper. abyss-desktop ships the current login files in `/usr/share/abyss/skel` so updates reach existing installs.

@@ -78,7 +78,7 @@ class EditorTest(unittest.TestCase):
             self.assertIn("Super+F2", result.stdout)
             self.assertIn("Launch Demo", result.stdout)
 
-    def run_editor(self, queue, capture="64 F2", probe="0", reject="", initial=""):
+    def run_editor(self, queue, capture="64 F2", probe="0", reject="", initial="", args=()):
         with tempfile.TemporaryDirectory(prefix="abyss-editor-test-") as tmp:
             root = Path(tmp)
             bindir = root / "bin"
@@ -100,7 +100,7 @@ class EditorTest(unittest.TestCase):
                 captures_file = root / "captures.json"
                 captures_file.write_text(json.dumps(capture))
                 env['ABYSS_TEST_CAPTURES'] = str(captures_file)
-            result = subprocess.run([str(EDITOR)], env=env, text=True, capture_output=True, timeout=15)
+            result = subprocess.run([str(EDITOR), *args], env=env, text=True, capture_output=True, timeout=15)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(json.loads(queue_file.read_text()), [])
             config = root / "config/abyss/shortcuts.conf"
@@ -154,6 +154,27 @@ class EditorTest(unittest.TestCase):
     def test_disables_and_restores_a_system_shortcut(self):
         config = self.run_editor(["System shortcuts", "Open terminal", "Disable shortcut", "@first",
                                   "System shortcuts", "Open terminal", "Restore default", "@first", "Done"])
+        self.assertEqual(config, "")
+
+    # Install software → an app → Change shortcut… (abyss-software)
+    APP = ("--app", "software-vscode", "Visual Studio Code", "exec:abyss-software --open vscode")
+
+    def test_app_mode_sets_a_shortcut_for_an_app_without_one(self):
+        config = self.run_editor(["@first"], "72 e", args=self.APP)
+        self.assertEqual(config, "A\tsoftware-vscode\t72\te\tVisual Studio Code\texec:abyss-software --open vscode\n")
+
+    def test_app_mode_changes_the_apps_shortcut(self):
+        initial = "A\tsoftware-vscode\t72\tv\tVisual Studio Code\texec:abyss-software --open vscode\n"
+        config = self.run_editor(["Change shortcut", "@first"], "72 e", initial=initial, args=self.APP)
+        self.assertEqual(config, initial.replace("\t72\tv\t", "\t72\te\t"))
+
+    def test_app_mode_clears_the_apps_shortcut(self):
+        initial = "B\t64\tReturn\t64\tF2\nA\tsoftware-vscode\t72\tv\tVisual Studio Code\texec:abyss-software --open vscode\n"
+        config = self.run_editor(["Remove shortcut", "@first"], initial=initial, args=self.APP)
+        self.assertEqual(config, "B\t64\tReturn\t64\tF2\n")
+
+    def test_app_mode_rejects_a_combination_in_use(self):
+        config = self.run_editor(["@first"], "64 b", args=self.APP)
         self.assertEqual(config, "")
 
 

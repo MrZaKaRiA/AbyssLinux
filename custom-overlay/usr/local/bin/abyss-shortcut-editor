@@ -186,6 +186,33 @@ EOF
     message 'Default shortcuts restored.'
 }
 
+# One application's shortcut (Install software → an app → Change shortcut…):
+# change or remove it when it has one, else capture a new one.
+edit_one() {  # edit_one ID LABEL exec:ACTION
+    case "$3" in exec:*|term-exec:*) ;; *) return 2 ;; esac
+    kind=A; id1=$1; id2=; app_label=$2; app_action=$3; currentmod=; currentkey=
+    record=$(bindings | awk -F '\t' -v id="$id1" '$1 == "A" && $2 == id {print; exit}') || return 1
+    if [ -z "$record" ]; then
+        capture_key && conflict && save_record set
+        return
+    fi
+    currentmod=$(printf '%s\n' "$record" | cut -f3); currentkey=$(printf '%s\n' "$record" | cut -f4)
+    selected=$(printf '%s\n' "$record" | render_rows | cut -f1)
+    choice=$(printf '%s\n' 'Change shortcut' 'Remove shortcut' 'Cancel' | choose -p "$selected") || return
+    case "$choice" in
+        'Change shortcut') capture_key && conflict && save_record set ;;
+        'Remove shortcut') save_record remove ;;
+    esac
+}
+
+if [ "${1:-}" = --app ]; then
+    [ $# -eq 4 ] || { echo 'usage: abyss-shortcut-editor --app ID LABEL exec:COMMAND' >&2; exit 2; }
+    bindings >/dev/null || exit 1
+    edit_one "$2" "$3" "$4"
+    [ $? -ne 2 ] || exit 2   # cancelled or refused: messages already shown
+    exit 0
+fi
+
 while :; do
     bindings >/dev/null || exit 1
     choice=$(printf '%s\n' 'System shortcuts' 'Application shortcuts' 'Add application shortcut' 'Restore all defaults' 'Done' | choose -p 'Keyboard shortcuts') || exit 0

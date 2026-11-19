@@ -11,6 +11,7 @@ docker-compose
 ffmpeg
 firefox
 fzf
+git
 gvfs
 lf
 libvirt
