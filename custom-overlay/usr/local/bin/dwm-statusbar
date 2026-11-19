@@ -464,6 +464,9 @@ while true; do
         HAVE_WPCTL=; type -P wpctl >/dev/null && HAVE_WPCTL=1
         HAVE_XKBSWITCH=; type -P xkb-switch >/dev/null && HAVE_XKBSWITCH=1
     fi
+    # audio support installed during the session: the volume shows within a
+    # tick, not up to a minute later (a PATH lookup, no command runs)
+    [[ -z "$HAVE_WPCTL" ]] && type -P wpctl >/dev/null && HAVE_WPCTL=1
     (( TICK % 5 == 0 )) && net_probe
     if (( TICK % 15 == 0 )); then docker_probe; passwords_probe; battery; fi
     TICK=$(( (TICK + 1) % 30 ))

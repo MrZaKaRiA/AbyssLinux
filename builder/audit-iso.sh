@@ -41,7 +41,7 @@ grep -Fx "VERSION_ID=\"$version\"" "$work/root/usr/lib/os-release"
 # for the screen; the old "Text size" menu became "Display scale")
 test -x "$work/root/usr/bin/abyss-scale"
 grep -Fq 'Display scale: automatic' "$work/root/usr/bin/abyss-control-center"
-xbps-query -r "$work/root" -p pkgver abyss-desktop | grep -Fx 'abyss-desktop-1.0_42'
+xbps-query -r "$work/root" -p pkgver abyss-desktop | grep -Fx 'abyss-desktop-1.0_43'
 xbps-query -r "$work/root" -p pkgver abyss-slock | grep -Fx 'abyss-slock-1.7_2'
 xbps-query -r "$work/root" -p pkgver abyss-st | grep -Fx 'abyss-st-0.9.3_3'
 xbps-query -r "$work/root" -p pkgver abyss-dwm | grep -Fx 'abyss-dwm-6.8_10'

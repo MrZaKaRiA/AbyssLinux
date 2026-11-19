@@ -153,6 +153,7 @@ run_install() {
             rm -f "$mark"; echo; echo 'Installing software needs your password (doas or sudo). Nothing was installed.'
             return 1
         fi
+        audio_now "$@"
         return "$rc"
     fi
     yes= update=
@@ -218,6 +219,21 @@ run_install() {
     [ -n "$ok" ] || echo 'Nothing was installed.'
     [ "$rc" -eq 0 ] || echo 'Note: the package lists could not be updated, so these results may be out of date.'
     [ -n "$ok" ] && [ "$status" -eq 0 ] && [ -z "$missing$broken$notdone" ]
+}
+
+# PipeWire starts at login (session-audio), so after installing audio support
+# in a running session there was no sound, no volume in the bar and the mixer
+# could not connect until the next login. Start it now, as the user, for the
+# desktop session this install runs in (session-audio decides: not for root,
+# nor without a graphical session).
+audio_now() {  # audio_now PKG... (the --run-install arguments)
+    audio=${ABYSS_SESSION_AUDIO:-/usr/libexec/abyss-desktop/session-audio}
+    for pkg; do
+        case $pkg in
+            pipewire|wireplumber|pipewire-pulse) [ -x "$audio" ] && "$audio" now; return 0 ;;
+        esac
+    done
+    return 0
 }
 
 install_packages() {  # install_packages "word..." (words may carry @arch)
