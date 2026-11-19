@@ -2,6 +2,7 @@
 
 ## v27.3.5 (2026-11-19)
 
+* Install software marks an app that Void has not built for your architecture right now ("not available on x86_64 right now") instead of failing when you install it.
 * **Disk space stays under control:** after every successful upgrade or install, replaced package versions are removed from the package cache and the freed space is shown (current packages stay for offline reinstalls). Update system no longer removes unneeded packages without asking; it lists them, and `cleanup` removes them.
 * New weekly TRIM service `abyss-fstrim`: keeps SSDs fast and lets virtual machine disk images shrink after files are deleted. Enabled once on existing systems and in new images; log in `/var/log/abyss-fstrim.log`; turn it off with `doas rm /var/service/abyss-fstrim`.
 * New **System › Free up disk space**: package cache, old kernels and unneeded packages, each removed only after asking, then TRIM, with one password prompt.
