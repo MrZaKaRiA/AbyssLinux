@@ -122,6 +122,8 @@ static const char *colorname[] = {
 	"#28203d", /* 257 -> rev cursor */
 	"#f3e8ff", /* 258 -> default foreground colour */
 	"#0d0b18", /* 259 -> default background colour */
+	"#ffffff", /* 260 -> selection foreground */
+	"#7c3aed", /* 261 -> selection background */
 };
 
 
@@ -133,6 +135,15 @@ unsigned int defaultfg = 258;
 unsigned int defaultbg = 259;
 unsigned int defaultcs = 256;
 static unsigned int defaultrcs = 257;
+
+/*
+ * Selected text is drawn with these colours instead of swapping the
+ * cell's foreground and background (a light block that flashes).
+ * Set ignoreselfg to 1 to keep each cell's own text colour.
+ */
+unsigned int selectionfg = 260;
+unsigned int selectionbg = 261;
+static int ignoreselfg = 0;
 
 /*
  * Default shape of cursor

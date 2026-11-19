@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+* Terminal (st): selected text is highlighted in Abyss purple (white on #7c3aed) instead of a bright white block, and selecting text a program shows in reverse video (`less` search hits, vim's status line) no longer turns it dark.
 * Logging in no longer flashes the default Abyss galaxy wallpaper before your own: the desktop's first frame shows the wallpaper you chose (or black), and the bar no longer shows "dwm-6.8" while it starts.
 * Login files from older Abyss images (`~/.xinitrc`, `~/.dwm/autostart.sh`) that you never edited are updated to the current version at your next login; the old copy is kept as `*.abyss-old`. Files you edited are never changed, and their old wallpaper line now draws your chosen wallpaper. abyss-desktop ships the current login files in `/usr/share/abyss/skel` so updates reach existing installs.
 * The shell helpers no longer print "Syntax error: Bad function name" in the emergency shell or any `sh -l`: `/etc/profile.d/zz-abyss-cli.sh` is plain POSIX sh, and the bash-only parts (`pkg-ui`, the prompt) moved to `/usr/share/abyss/abyss-cli.bash`, which only bash loads.

@@ -66,7 +66,7 @@ jobs:
           for attempt in $(seq 1 90); do
             if curl -fsI "$repo/abyss-desktop-1.0_38.${{ matrix.arch }}.xbps" >/dev/null && \
                curl -fsI "$repo/abyss-slock-1.7_2.${{ matrix.arch }}.xbps" >/dev/null && \
-               curl -fsI "$repo/abyss-st-0.9.3_2.${{ matrix.arch }}.xbps" >/dev/null && \
+               curl -fsI "$repo/abyss-st-0.9.3_3.${{ matrix.arch }}.xbps" >/dev/null && \
                curl -fsI "$repo/abyss-dwm-6.8_10.${{ matrix.arch }}.xbps" >/dev/null && \
                curl -fsI "$repo/abyss-theme-1.0_7.${{ matrix.arch }}.xbps" >/dev/null && \
                curl -fsI "$repo/abyss-boot-1.0_1.${{ matrix.arch }}.xbps" >/dev/null; then
