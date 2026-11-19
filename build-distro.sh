@@ -31,7 +31,7 @@ PKGS_BASE_X11="base-system curl ca-certificates grub grub-arm64-efi grub-x86_64-
 PKGS_INSTALLER="dialog xtools-minimal xmirror"
 # Abyss builds of the suckless tools from the signed Abyss PMR
 ABYSS_PMR="${ABYSS_PMR:-https://mrzakaria.github.io/AbyssLinuxPMR/current}"
-PKGS_SUCKLESS="abyss-dwm abyss-st abyss-dmenu abyss-slock abyss-tabbed abyss-wmname abyss-theme nsxiv feh xmenu xdotool"
+PKGS_SUCKLESS="abyss-dwm abyss-st abyss-dmenu abyss-slock abyss-tabbed abyss-wmname abyss-theme abyss-boot nsxiv feh xmenu xdotool"
 
 ALL_PACKAGES="${PKGS_BASE_X11} ${PKGS_INSTALLER} ${PKGS_SUCKLESS}"
 # elogind is installed but not enabled: D-Bus starts it on demand. Enabling its
@@ -41,9 +41,11 @@ ALL_PACKAGES="${PKGS_BASE_X11} ${PKGS_INSTALLER} ${PKGS_SUCKLESS}"
 ENABLED_SERVICES="dbus polkit NetworkManager lightdm chronyd"
 
 # Silent boot (later loglevel= overrides mklive's built-in loglevel=4)
-ABYSS_BOOT_CMDLINE="quiet loglevel=3 rd.udev.log_level=3 udev.log_level=3 vt.global_cursor_default=0"
+# splash: the Abyss logo (plymouth, from abyss-boot); plymouth.ignore-serial-consoles:
+# draw it on the screen even when the machine also has a serial console
+ABYSS_BOOT_CMDLINE="quiet splash loglevel=3 rd.udev.log_level=3 udev.log_level=3 vt.global_cursor_default=0 plymouth.ignore-serial-consoles"
 ABYSS_POSTSETUP="${SCRIPT_DIR}/builder/abyss-postsetup.sh"
-ABYSS_SPLASH="${OVERLAY_DIR}/usr/share/backgrounds/abyss/abyss-splash.png"
+ABYSS_SPLASH="${SCRIPT_DIR}/builder/abyss-iso-splash.png"
 # No text login on tty1: LightDM owns the screen from the splash to the desktop
 ABYSS_DEFAULT_SERVICES="agetty-tty2 agetty-tty3 agetty-tty4 agetty-tty5 agetty-tty6 udevd"
 

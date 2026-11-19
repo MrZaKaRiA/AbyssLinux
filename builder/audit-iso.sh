@@ -38,14 +38,48 @@ fi
 version=$(tr -d ' \n' < "$(dirname "$0")/../VERSION")
 grep -Fx "VERSION_ID=\"$version\"" "$work/root/usr/lib/os-release"
 grep -q 'Text size: automatic' "$work/root/usr/bin/abyss-control-center"
-xbps-query -r "$work/root" -p pkgver abyss-desktop | grep -Fx 'abyss-desktop-1.0_34'
+xbps-query -r "$work/root" -p pkgver abyss-desktop | grep -Fx 'abyss-desktop-1.0_36'
 xbps-query -r "$work/root" -p pkgver abyss-slock | grep -Fx 'abyss-slock-1.7_2'
 xbps-query -r "$work/root" -p pkgver abyss-st | grep -Fx 'abyss-st-0.9.3_2'
 xbps-query -r "$work/root" -p pkgver abyss-dwm | grep -Fx 'abyss-dwm-6.8_10'
 test -x "$work/root/usr/bin/abyss-record"
 test -f "$work/root/etc/skel/.config/zathura/zathurarc"
 test -f "$work/root/etc/skel/.vim/ftplugin/tex.vim"
-xbps-query -r "$work/root" -p pkgver abyss-theme | grep -Fx 'abyss-theme-1.0_6'
+xbps-query -r "$work/root" -p pkgver abyss-theme | grep -Fx 'abyss-theme-1.0_7'
+# Clean boot (abyss-boot): the Abyss logo on black from GRUB (05_abyss_splash)
+# through plymouth to the login screen, which shows the user's own wallpaper;
+# no galaxy picture, no old progress-bar theme
+xbps-query -r "$work/root" -p pkgver abyss-boot | grep -Fx 'abyss-boot-1.0_1'
+xbps-query -r "$work/root" -p pkgver plymouth
+test -x "$work/root/etc/grub.d/05_abyss_splash"
+test -x "$work/root/usr/bin/abyss-boot-splash"
+test -x "$work/root/usr/libexec/abyss-boot/abyss-splash-render"
+test -f "$work/root/etc/runit/core-services/01-abyss-boot-splash.sh"
+test -f "$work/root/usr/share/plymouth/themes/abyss-logo/abyss-logo.script"
+test -f "$work/root/usr/share/plymouth/themes/abyss-logo/abyss-logo-128.png"
+grep -Fxq 'Theme=abyss-logo' "$work/root/etc/plymouth/plymouthd.conf"
+if grep -q '^GRUB_BACKGROUND=' "$work/root/etc/default/grub"; then
+    echo '/etc/default/grub sets GRUB_BACKGROUND (hides the Abyss logo splash)' >&2
+    exit 1
+fi
+grep -q '^GRUB_TIMEOUT_STYLE=hidden$' "$work/root/etc/default/grub"
+grep -q '^GRUB_CMDLINE_LINUX_DEFAULT=".*splash.*plymouth.ignore-serial-consoles' "$work/root/etc/default/grub"
+test ! -e "$work/root/usr/share/plymouth/themes/abyss"
+test ! -e "$work/root/usr/share/backgrounds/abyss/abyss-splash.png"
+grep -Fxq 'background=/var/lib/abyss-greeter/background' "$work/root/etc/lightdm/lightdm-gtk-greeter.conf.d/50-abyss.conf"
+grep -Fq 'greeter_background' "$work/root/usr/bin/abyss-display-setup"
+# Live ISO: GRUB draws the logo splash at once; the live initrd has plymouth
+# and the Abyss theme; the kernel line asks for the splash
+xorriso -osirrox on -indev "$iso" -extract /boot/grub/grub_void.cfg "$work/grub_void.cfg" 2>/dev/null
+grep -Fq 'abyss-iso-splash.png' "$work/grub_void.cfg"
+grep -q 'clear # abyss: show the logo now' "$work/grub_void.cfg"
+grep -q 'splash .*plymouth.ignore-serial-consoles' "$work/grub_void.cfg"
+if command -v lsinitrd >/dev/null 2>&1; then
+    xorriso -osirrox on -indev "$iso" -extract /boot/initrd "$work/initrd" 2>/dev/null
+    lsinitrd "$work/initrd" | grep -q 'usr/share/plymouth/themes/abyss-logo/abyss-logo.script'
+else
+    echo 'lsinitrd not found: live initrd splash not checked' >&2
+fi
 # Shell helpers come from the package (so updates reach installed systems),
 # never from an image-only copy
 xbps-query -r "$work/root" -o /etc/profile.d/zz-abyss-cli.sh | grep -q '^abyss-desktop-'

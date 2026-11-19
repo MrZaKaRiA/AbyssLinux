@@ -3,11 +3,13 @@
 # abyss-mklive-tweaks.sh <mklive-dir>
 # Applies Abyss boot-screen tweaks to a *working copy* of void-mklive before
 # mklive.sh runs. The vendored ./void-mklive tree is never modified.
-#   - live GRUB menu hidden (hold Esc/Shift to show it), 1 s timeout
+#   - live GRUB menu hidden (hold Esc/Shift to show it), 1 s timeout, and
+#     the logo background drawn at once
 #   - ISO volume label ABYSS_LIVE instead of VOID_LIVE
 #   - live hostname abyss-live instead of void-live
 #   - Abyss PMR signing key added to keys/ (trusted repository)
-# The GRUB background comes from SPLASH_IMAGE (exported by the build scripts).
+# The GRUB background comes from SPLASH_IMAGE (exported by the build scripts:
+# builder/abyss-iso-splash.png, the Abyss logo on black).
 # The kernel side of the silent boot comes from ABYSS_BOOT_CMDLINE (mklive -C).
 # Idempotent: safe to run more than once.
 # ==============================================================================
@@ -25,6 +27,14 @@ sed -i \
 
 grep -q '^timeout_style=hidden' "$PRE" || { echo "abyss-mklive-tweaks: could not set hidden menu" >&2; exit 1; }
 echo "[abyss] live GRUB menu: hidden, timeout 1s"
+
+# Draw the background (SPLASH_IMAGE: the Abyss logo on black) right away:
+# with the hidden menu GRUB prints nothing else that would make it appear.
+if ! grep -q '^[[:space:]]*clear # abyss: show the logo now$' "$PRE"; then
+    sed -i '/^[[:space:]]*background_image /a\	clear # abyss: show the logo now' "$PRE"
+fi
+grep -q '^[[:space:]]*clear # abyss: show the logo now$' "$PRE" || { echo "abyss-mklive-tweaks: could not add the logo redraw" >&2; exit 1; }
+echo "[abyss] live GRUB: Abyss logo on black"
 
 # Volume label: GRUB root=live:CDLABEL=..., xorriso -volid, isolinux entries
 for f in "$MK/mklive.sh" "$MK/isolinux/isolinux.cfg.in"; do

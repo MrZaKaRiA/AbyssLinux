@@ -14,10 +14,12 @@ trap 'rm -rf "$work"' EXIT
 cp -a "$root/void-mklive" "$work/void-mklive"
 sh "$root/builder/abyss-mklive-tweaks.sh" "$work/void-mklive"
 mkdir -p "$root/out"
-export SPLASH_IMAGE="$root/custom-overlay/usr/share/backgrounds/abyss/abyss-splash.png"
+# GRUB background of the live ISO: the Abyss logo on black (16:9, stretched to
+# the screen; installed systems get one made for their screen by abyss-boot)
+export SPLASH_IMAGE="$root/builder/abyss-iso-splash.png"
 export DEFAULT_SERVICE_LIST='agetty-tty2 agetty-tty3 agetty-tty4 agetty-tty5 agetty-tty6 udevd'
 export ABYSS_OVERLAY="$root/custom-overlay"
-packages="base-system curl ca-certificates xorg-minimal xss-lock xf86-video-fbdev xf86-input-libinput xf86-input-evdev xorg-input-drivers dialog parted gptfdisk cryptsetup lvm2 mdadm xtools-minimal xmirror dosfstools efibootmgr grub $grub_efi setxkbmap xrdb xmodmap xev opendoas lightdm lightdm-gtk-greeter xinit xsetroot xset xrandr mesa-dri dbus elogind polkit NetworkManager chrony abyss-dwm abyss-st abyss-dmenu abyss-slock abyss-tabbed abyss-wmname abyss-theme nsxiv feh xmenu xdotool font-jetbrains-mono-ttf nerd-fonts-symbols-ttf"
+packages="base-system curl ca-certificates xorg-minimal xss-lock xf86-video-fbdev xf86-input-libinput xf86-input-evdev xorg-input-drivers dialog parted gptfdisk cryptsetup lvm2 mdadm xtools-minimal xmirror dosfstools efibootmgr grub $grub_efi setxkbmap xrdb xmodmap xev opendoas lightdm lightdm-gtk-greeter xinit xsetroot xset xrandr mesa-dri dbus elogind polkit NetworkManager chrony abyss-dwm abyss-st abyss-dmenu abyss-slock abyss-tabbed abyss-wmname abyss-theme abyss-boot nsxiv feh xmenu xdotool font-jetbrains-mono-ttf nerd-fonts-symbols-ttf"
 cd "$work/void-mklive"
 # elogind is installed but not enabled: D-Bus starts it on demand. Enabling its
 # runit service made runit retry every second forever ("already running").
@@ -27,6 +29,6 @@ cd "$work/void-mklive"
     -i gzip -s zstd -o "$root/out/abyss-linux-${version}-${arch}.iso" \
     -I "$root/custom-overlay" -p "$packages" \
     -S 'dbus polkit NetworkManager lightdm chronyd' \
-    -C 'quiet loglevel=3 rd.udev.log_level=3 udev.log_level=3 vt.global_cursor_default=0' \
+    -C 'quiet splash loglevel=3 rd.udev.log_level=3 udev.log_level=3 vt.global_cursor_default=0 plymouth.ignore-serial-consoles' \
     -x "$root/builder/abyss-postsetup.sh" -T 'Abyss Linux Minimal Suckless Desktop'
 test -s "$root/out/abyss-linux-${version}-${arch}.iso"

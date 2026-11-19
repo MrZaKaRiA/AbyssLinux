@@ -69,13 +69,16 @@ PKGS_ABYSS="${PKGS_ABYSS} lightdm lightdm-gtk-greeter"
 # Abyss builds of the suckless tools, from the signed Abyss PMR
 # (https://github.com/MrZaKaRiA/AbyssLinuxPMR); they replace Void's st/dwm/dmenu
 ABYSS_PMR="${ABYSS_PMR:-https://mrzakaria.github.io/AbyssLinuxPMR/current}"
-PKGS_SUCKLESS="abyss-dwm abyss-st abyss-dmenu abyss-slock abyss-tabbed abyss-wmname abyss-theme nsxiv feh xmenu xdotool"
+PKGS_SUCKLESS="abyss-dwm abyss-st abyss-dmenu abyss-slock abyss-tabbed abyss-wmname abyss-theme abyss-boot nsxiv feh xmenu xdotool"
 
 # Silent boot (later loglevel= overrides mklive's built-in loglevel=4)
-ABYSS_BOOT_CMDLINE="quiet loglevel=3 rd.udev.log_level=3 udev.log_level=3 vt.global_cursor_default=0"
+# splash: the Abyss logo (plymouth, from abyss-boot); plymouth.ignore-serial-consoles:
+# draw it on the screen even when the machine also has a serial console
+ABYSS_BOOT_CMDLINE="quiet splash loglevel=3 rd.udev.log_level=3 udev.log_level=3 vt.global_cursor_default=0 plymouth.ignore-serial-consoles"
 ABYSS_POSTSETUP=/workspace/builder/abyss-postsetup.sh
-# Abyss GRUB background instead of Void's data/splash.png
-export SPLASH_IMAGE=/workspace/custom-overlay/usr/share/backgrounds/abyss/abyss-splash.png
+# GRUB background of the live ISO: the Abyss logo on black (16:9, stretched to
+# the screen; installed systems get one made for their screen by abyss-boot)
+export SPLASH_IMAGE=/workspace/builder/abyss-iso-splash.png
 # No text login on tty1: LightDM owns the screen from the splash to the desktop
 # (text consoles stay on tty2-tty6). mklive reads this from the environment.
 export DEFAULT_SERVICE_LIST="agetty-tty2 agetty-tty3 agetty-tty4 agetty-tty5 agetty-tty6 udevd"

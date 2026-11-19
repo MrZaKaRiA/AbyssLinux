@@ -4,6 +4,8 @@
 # greeter's X server before the greeter starts).
 # Gives the login screen the display scale the desktop will use (abyss-scale:
 # sized for the screen). Override for everyone in /etc/abyss/dpi.
+# Gives it the desktop wallpaper of the user it shows first (see below), and
+# keeps the boot logo picture made for this screen (abyss-boot-splash).
 # ==============================================================================
 if command -v abyss-scale >/dev/null 2>&1; then
     abyss-scale --greeter
@@ -11,5 +13,96 @@ else
     dpi=$(tr -dc 0-9 < /etc/abyss/dpi 2>/dev/null)
     command -v xrdb >/dev/null 2>&1 && echo "Xft.dpi: ${dpi:-96}" | xrdb -merge
     command -v abyss-cursor >/dev/null 2>&1 && abyss-cursor "${dpi:-96}"
+fi
+
+# ---- Login screen background -------------------------------------------------
+# Like macOS, the login screen shows the desktop wallpaper of the user it
+# offers first: the last one who logged in (LightDM's greeter remembers), or
+# the only/first user. The greeter runs as the "lightdm" user, which cannot
+# read the users' homes, so the picture is copied to $GREETER_DIR, readable by
+# the lightdm group only; the greeter's background= points at
+# $GREETER_DIR/background (abyss-theme, lightdm-gtk-greeter.conf.d/50-abyss.conf).
+#   no choice / "abyss"  the Abyss wallpaper (no copy)
+#   "none"                black
+#   an image             a copy, read with the user's own permissions (so it
+#                        is never a file the user could not open), only when
+#                        it is a JPEG, PNG or WebP picture of at most 64 MiB
+# The choice is ~/.config/abyss/wallpaper (abyss-wallpaper / abyss-wallpapers).
+GREETER_DIR="${ABYSS_GREETER_DIR:-/var/lib/abyss-greeter}"
+GREETER_STATE="${ABYSS_GREETER_STATE:-/var/lib/lightdm/.cache/lightdm-gtk-greeter/state}"
+PASSWD="${ABYSS_PASSWD:-/etc/passwd}"
+DEFAULT_WALLPAPER="${ABYSS_BACKGROUNDS_DIR:-/usr/share/backgrounds/abyss}/abyss-wallpaper.jpg"
+MAX_BYTES=67108864
+
+# "name:uid:gid:home" of a human user (uid 1000-59999 with a login shell)
+human_user() {
+    awk -F: -v want="$1" '$3 >= 1000 && $3 < 60000 && $7 !~ /(nologin|false)$/ &&
+        (want == "" || $1 == want) { print $1 ":" $3 ":" $4 ":" $6 }' "$PASSWD" 2>/dev/null |
+        sort -t: -k2,2n | head -n 1
+}
+
+# Run a command as that user (their uid, gid and groups, no capabilities)
+as_user() {
+    timeout 10 setpriv --reuid="$u_uid" --regid="$u_gid" --init-groups --inh-caps=-all -- "$@"
+}
+
+greeter_background() {
+    [ "$(id -u)" = 0 ] || return 0
+    command -v setpriv >/dev/null 2>&1 || return 0
+    last=$(sed -n 's/^last-user=//p' "$GREETER_STATE" 2>/dev/null | head -n 1)
+    user=$(human_user "$last")
+    [ -n "$user" ] || user=$(human_user "")
+    IFS=: read -r u_name u_uid u_gid u_home <<EOF
+$user
+EOF
+
+    choice=
+    if [ -n "$u_name" ]; then
+        choice=$(cd / && as_user head -n 1 -- "$u_home/.config/abyss/wallpaper" 2>/dev/null)
+        case "$choice" in '~/'*) choice="$u_home/${choice#??}" ;; '') ;; /*) ;; none) ;; *) choice="$u_home/$choice" ;; esac
+    fi
+
+    group=$(id -g lightdm 2>/dev/null)
+    mkdir -p "$GREETER_DIR" && chmod 0750 "$GREETER_DIR" || return 0
+    if [ -n "$group" ]; then chgrp "$group" "$GREETER_DIR" || return 0; else chmod 0755 "$GREETER_DIR"; fi
+
+    target=$DEFAULT_WALLPAPER
+    if [ "$choice" = none ]; then
+        target=$GREETER_DIR/black.png
+        if [ ! -s "$target" ]; then
+            # 1x1 black PNG; the greeter scales it to the screen
+            printf '\211\120\116\107\015\012\032\012\000\000\000\015\111\110\104\122\000\000\000\001\000\000\000\001\010\000\000\000\000\072\176\233\125\000\000\000\012\111\104\101\124\170\332\143\140\000\000\000\002\000\001\345\047\336\374\000\000\000\000\111\105\116\104\256\102\140\202' > "$target"
+            chmod 0644 "$target"
+        fi
+    elif [ -n "$choice" ] && (cd / && as_user test -f "$choice" -a -r "$choice"); then
+        tmp=$(mktemp "$GREETER_DIR/.copy.XXXXXX") || return 0
+        if (cd / && as_user head -c $((MAX_BYTES + 1)) -- "$choice") > "$tmp" 2>/dev/null &&
+            [ "$(wc -c < "$tmp")" -le "$MAX_BYTES" ] &&
+            case "$(od -An -tx1 -N12 "$tmp" | tr -d ' \n')" in
+                ffd8ff*|89504e470d0a1a0a*|52494646????????57454250) true ;;
+                *) false ;;
+            esac; then
+            if cmp -s "$tmp" "$GREETER_DIR/user-background"; then
+                rm -f "$tmp"
+            else
+                chmod 0644 "$tmp" && mv -f "$tmp" "$GREETER_DIR/user-background"
+            fi
+            target=$GREETER_DIR/user-background
+        else
+            rm -f "$tmp"
+        fi
+    fi
+    # No copy of anyone's picture is kept once it is not the one shown.
+    [ "$target" = "$GREETER_DIR/user-background" ] || rm -f "$GREETER_DIR/user-background"
+    [ "$(readlink "$GREETER_DIR/background" 2>/dev/null)" = "$target" ] ||
+        ln -sfn "$target" "$GREETER_DIR/background"
+}
+greeter_background
+
+# The boot logo picture GRUB shows (abyss-boot), remade when the screen
+# changed; in the background, the login screen does not wait for it.
+splash="${ABYSS_BOOT_SPLASH:-abyss-boot-splash}"
+if [ "$(id -u)" = 0 ] && command -v "$splash" >/dev/null 2>&1; then
+    "$splash" >/dev/null 2>&1 &
 fi
 exit 0
