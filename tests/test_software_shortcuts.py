@@ -54,6 +54,12 @@ class SoftwareShortcutsTest(StubbedTest):
                         ABYSS_APPLICATIONS_DIR=str(self.root / 'applications'))
         (self.root / 'applications').mkdir()
         self.conf = self.root / '.config/abyss/shortcuts.conf'
+        # Run as the desktop user whatever user runs the tests (CI is root):
+        # shortcuts are only assigned outside root; what abyss-priv runs is root.
+        for tool in ('abyss-priv', 'doas'):
+            self.stub(tool, 'FAKE_ROOT=1 exec "$@"')
+        self.stub('id', '[ "$1" = -u ] && [ -n "$FAKE_ROOT" ] && { echo 0; exit; }\n'
+                        '[ "$1" = -u ] && { echo 1000; exit; }; echo uid=1000')
 
     # helpers -------------------------------------------------------------
     def dwm(self):
