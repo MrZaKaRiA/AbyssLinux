@@ -104,6 +104,7 @@ class PackageNamesTest(unittest.TestCase):
 # Stub xbps tools. State lives in $HOME so each test sets it up with files:
 #   sync-fail     number of syncs that still fail (with the message in sync-error)
 #   missing       names xbps-query -R does not know
+#   repo          names xbps-query -Rs '' lists (the package lists on disk)
 #   broken        names whose dry run fails (unresolvable dependency)
 #   size          download size in bytes printed per package by dry runs
 XBPS_INSTALL = r'''printf '%s\n' "$*" >> "$HOME/xbps.log"
@@ -138,6 +139,11 @@ if [ "$1" = -l ]; then
 fi
 # -L: the repositories and their package counts (-1: no lists on disk)
 if [ "$1" = -L ]; then cat "$HOME/repos" 2>/dev/null || echo "   8 https://repo-default.voidlinux.org/current/aarch64 (RSA signed)"; exit 0; fi
+# -Rs '': every package in the lists, one per name in $HOME/repo (none without it)
+if [ "$1" = -Rs ]; then
+    [ -f "$HOME/repo" ] || exit 0
+    while read -r n; do echo "[-] $n-1.0_1                 description of $n"; done < "$HOME/repo"; exit 0
+fi
 if [ "$1" != -R ]; then grep -qx "$1" "$HOME/installed" 2>/dev/null; exit $(( $? ? 2 : 0 )); fi
 grep -qx "$2" "$HOME/missing" 2>/dev/null && exit 2
 echo "pkgver: $2-1.0_1"'''
@@ -462,6 +468,65 @@ class InstallerTest(StubbedTest):
         self.menu('Media tools  (partly installed, missing: yt-dlp ffmpeg)', 'Install missing: yt-dlp ffmpeg')
         self.assertIn('Remove installed parts: mpv', self.log('dmenu.log'))
         self.assertRegex(self.log('setsid.log')[0], r"--run-install yt-dlp ffmpeg;")
+
+    # Packages the repositories do not have right now ----------------------------
+    def unavailable_setup(self):
+        # firefox and yt-dlp are gone from the lists (Void rebuilding them);
+        # bluez is not listed by name but resolves (a virtual package)
+        self.write('repo', 'mpv\nffmpeg\n')
+        self.write('missing', 'firefox\nyt-dlp\n')
+
+    def test_menu_marks_packages_the_repositories_do_not_have(self):
+        self.unavailable_setup()
+        self.menu()
+        self.assertEqual(self.menu_listing(), [
+            'Firefox (Void package)  (not available on aarch64 right now)',
+            'Media tools  (yt-dlp not available on aarch64 right now)',
+            'Bluetooth support'])
+        queries = self.log('query.log')
+        self.assertEqual(queries.count("-Rs "), 1)              # one listing for the whole menu
+        self.assertEqual(sorted(q for q in queries if q.startswith('-R ')),
+                         ['-R bluez', '-R firefox', '-R yt-dlp'])  # only names not listed
+
+    def test_partly_installed_bundle_names_its_unavailable_part(self):
+        self.unavailable_setup()
+        self.write('installed', 'mpv\n')
+        self.menu()
+        self.assertEqual(self.menu_listing()[1],
+                         'Media tools  (partly installed, missing: yt-dlp ffmpeg)  '
+                         '(yt-dlp not available on aarch64 right now)')
+
+    def test_choosing_an_unavailable_entry_explains_and_installs_nothing(self):
+        self.unavailable_setup()
+        self.menu('Firefox (Void package)  (not available on aarch64 right now)', 'Back')
+        prompts = [l for l in self.log('dmenu.log') if l.startswith('## ')]
+        self.assertTrue(any('-p Firefox is not available for aarch64 in the enabled repositories right now'
+                            in p for p in prompts), prompts)
+        self.assertEqual(self.log('setsid.log'), [])
+
+    def test_unavailable_entry_can_still_be_tried(self):
+        self.unavailable_setup()
+        self.menu('Firefox (Void package)  (not available on aarch64 right now)', 'Try anyway')
+        self.assertRegex(self.log('setsid.log')[0], r"--run-install firefox;")
+        # the installer itself names what the repositories lack
+        out = self.software('--run-install', '--yes', 'firefox')
+        self.assertIn('Not available for aarch64 in the enabled repositories: firefox', out)
+
+    def test_bundle_with_some_unavailable_packages_installs_the_rest(self):
+        self.unavailable_setup()
+        self.menu('Media tools  (yt-dlp not available on aarch64 right now)')
+        self.assertRegex(self.log('setsid.log')[0], r"--run-install mpv yt-dlp ffmpeg;")
+
+    def test_nothing_is_marked_when_the_lists_cannot_tell(self):
+        self.unavailable_setup()
+        self.write('repos', '   8 https://repo-default.voidlinux.org/current/aarch64 (RSA signed)\n'
+                            '  -1 https://repo-default.voidlinux.org/current/aarch64/nonfree (RSA maybe-signed)\n')
+        self.menu()
+        self.assertEqual(self.menu_listing(), ['Firefox (Void package)', 'Media tools', 'Bluetooth support'])
+        (self.root / 'repos').unlink()
+        (self.root / 'repo').unlink()                          # never synced: no listing
+        self.menu()
+        self.assertEqual(self.menu_listing(), ['Firefox (Void package)', 'Media tools', 'Bluetooth support'])
 
     def test_update_mode_updates_instead_of_installing(self):
         out = self.software('--run-install', '--yes', '--update', 'firefox')

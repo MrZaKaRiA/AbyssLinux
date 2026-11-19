@@ -31,13 +31,16 @@ grep -Fq '.thunar .shortcuts-pane' "$work/root/usr/share/themes/Abyss/gtk-3.0/gt
 test -x "$work/root/usr/bin/img"
 test ! -L "$work/root/usr/local/bin/abyss-welcome"
 test -f "$work/root/etc/skel/.config/rofi/config.rasi"
-if grep -q '^}\";' "$work/root/etc/skel/.config/rofi/config.rasi"; then
+if grep -q '^}";' "$work/root/etc/skel/.config/rofi/config.rasi"; then
     echo 'Broken rofi configuration terminator found' >&2
     exit 1
 fi
 version=$(tr -d ' \n' < "$(dirname "$0")/../VERSION")
 grep -Fx "VERSION_ID=\"$version\"" "$work/root/usr/lib/os-release"
-grep -q 'Text size: automatic' "$work/root/usr/bin/abyss-control-center"
+# Settings › Display offers the automatic display scale (abyss-scale picks it
+# for the screen; the old "Text size" menu became "Display scale")
+test -x "$work/root/usr/bin/abyss-scale"
+grep -Fq 'Display scale: automatic' "$work/root/usr/bin/abyss-control-center"
 xbps-query -r "$work/root" -p pkgver abyss-desktop | grep -Fx 'abyss-desktop-1.0_40'
 xbps-query -r "$work/root" -p pkgver abyss-slock | grep -Fx 'abyss-slock-1.7_2'
 xbps-query -r "$work/root" -p pkgver abyss-st | grep -Fx 'abyss-st-0.9.3_3'
@@ -76,7 +79,10 @@ grep -q 'clear # abyss: show the logo now' "$work/grub_void.cfg"
 grep -q 'splash .*plymouth.ignore-serial-consoles' "$work/grub_void.cfg"
 if command -v lsinitrd >/dev/null 2>&1; then
     xorriso -osirrox on -indev "$iso" -extract /boot/initrd "$work/initrd" 2>/dev/null
-    lsinitrd "$work/initrd" | grep -q 'usr/share/plymouth/themes/abyss-logo/abyss-logo.script'
+    # listed to a file: grep -q stops reading early, and with pipefail the
+    # SIGPIPE of the long listing would fail the check
+    lsinitrd "$work/initrd" > "$work/initrd.list" 2>/dev/null
+    grep -Fq 'usr/share/plymouth/themes/abyss-logo/abyss-logo.script' "$work/initrd.list"
 else
     echo 'lsinitrd not found: live initrd splash not checked' >&2
 fi
@@ -141,7 +147,7 @@ done < <(xbps-query -r "$work/root" -f abyss-desktop | sed 's/ -> .*//')
 # (glibc's built-in C.UTF-8 needs glibc >= 2.35)
 inst="$work/root/usr/bin/void-installer"
 grep -Fxq 'EFI_BOOTLOADER_ID=Abyss' "$inst"
-if grep -v '^[[:space:]]*#' "$inst" | grep -q 'void_grub'; then
+if grep -v '^[[:space:]]*#' "$inst" | grep 'void_grub' >/dev/null; then  # no -q: see lsinitrd above
     echo 'void-installer still installs GRUB as void_grub' >&2
     exit 1
 fi

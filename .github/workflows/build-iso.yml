@@ -27,6 +27,11 @@ jobs:
           fetch-depth: 0  # migration tests read old file versions from git history
       - name: Run desktop tests
         run: python3 -m unittest discover -s tests -v
+  # Advisory: Void drops a package from its repository while rebuilding it
+  # (chromium on x86_64, 27.3.5), so a package missing from the live
+  # repodata is a warning, not a failed build; abyss-software tells users the
+  # entry is not available right now. Names stay checked by the fixture test
+  # in desktop-tests. Anything else that goes wrong here still fails.
   void-package-names:
     name: Installer packages exist in live Void
     runs-on: ubuntu-latest
@@ -38,7 +43,20 @@ jobs:
           for f in x86_64-repodata nonfree/x86_64-repodata aarch64/aarch64-repodata aarch64/nonfree/aarch64-repodata; do
             curl -fsSL --retry 3 -o "$d/$(echo "${f#aarch64/}" | tr / -)" "$base/$f"
           done
-          ABYSS_VOID_REPODATA="$d" python3 -m unittest -v tests.test_software_packages.PackageNamesTest
+          rc=0
+          ABYSS_VOID_REPODATA="$d" python3 -m unittest -v tests.test_software_packages.PackageNamesTest \
+            > "$d/result.txt" 2>&1 || rc=$?
+          cat "$d/result.txt"
+          [ "$rc" -ne 0 ] || exit 0
+          missing=$(sed -n 's/^AssertionError: \(False is not true : \)\{0,1\}\(.* is not a Void package on .*\)$/\2/p' "$d/result.txt")
+          # only missing packages are a warning: any other failure or error fails
+          if [ -z "$missing" ] || grep -q '^ERROR:' "$d/result.txt" ||
+             [ "$(grep -c '^FAIL:' "$d/result.txt")" -ne "$(printf '%s\n' "$missing" | wc -l)" ]; then
+            exit "$rc"
+          fi
+          printf '%s\n' "$missing" | while IFS= read -r line; do
+            echo "::warning title=Not in the live Void repository::$line (abyss-software shows it as not available right now)"
+          done
   build:
     needs: desktop-tests
     name: Build ${{ matrix.arch }} ISO

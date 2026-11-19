@@ -419,6 +419,35 @@ installed_packages() {
     xbps-query -l 2>/dev/null | awk '{ n = $2; sub(/-[^-]*$/, "", n); print n }'
 }
 
+# Names of the packages in the enabled repositories, one per line, from the
+# package lists already on this computer (one xbps-query call, no network,
+# about 0.1 s). Fails when the lists cannot tell: a repository has none yet
+# (never synced) or the listing is empty.
+repo_packages() {
+    lists=$(xbps-query -L 2>/dev/null) && [ -n "$lists" ] || return 1
+    ! printf '%s\n' "$lists" | grep -q '^[[:space:]]*-1[[:space:]]' || return 1
+    # lines are "[-] name-version_revision  description"
+    names=$(xbps-query -Rs '' 2>/dev/null | awk '{ n = $2; sub(/-[^-]*$/, "", n); if (n != "") print n }')
+    [ -n "$names" ] && printf '%s\n' "$names"
+}
+
+# The packages among NAMES that the enabled repositories do not have right
+# now (Void removes a package while it rebuilds it, for instance). A name
+# missing from REPO_PKGS (repo_packages, read once per menu) is confirmed
+# with the query the installer itself uses: a virtual package is only found
+# that way. Prints nothing when the lists cannot tell.
+unavailable_packages() {  # unavailable_packages "name..."
+    [ -n "${REPO_PKGS+x}" ] || REPO_PKGS=$(repo_packages) || REPO_PKGS=
+    [ -n "$REPO_PKGS" ] || return 0
+    out=
+    for pkg in $1; do
+        printf '%s\n' "$REPO_PKGS" | grep -qxF "$pkg" && continue
+        xbps-query -R "$pkg" >/dev/null 2>&1 && continue
+        out="$out $pkg"
+    done
+    printf '%s\n' "${out# }"
+}
+
 # ---------------------------------------------------------------- installed?
 # The app's name without the notes in brackets: "Visual Studio Code".
 app_name() { printf '%s\n' "$1" | sed 's/ *([^)]*)//g; s/[[:space:]]*$//'; }
@@ -677,17 +706,26 @@ sync_shortcuts() {  # sync_shortcuts WANTED_FILE
 }
 
 # ---------------------------------------------------------------- the menu
-# One row per entry: display label, action, state (is_installed), key, name.
-# Installed entries are marked, with their keyboard shortcut.
+# One row per entry: display label, action, state (is_installed), key, name,
+# and the packages still to install that the repositories do not have right
+# now ("-" for none). Installed entries are marked, with their keyboard
+# shortcut; unavailable packages are named.
 menu_entries() {  # menu_entries ARCH
     [ -n "${INSTALLED_PKGS+x}" ] || INSTALLED_PKGS=$(installed_packages)
+    [ -n "${REPO_PKGS+x}" ] || REPO_PKGS=$(repo_packages) || REPO_PKGS=
     rows=$(entries "$1" | while IFS='	' read -r label action; do
         state=$(is_installed "$action")
         key=$(entry_key "$label" "$action")
         opens=0; [ "$state" = all ] || [ "${state#part:}" != "$state" ] &&
             open_command "$action" >/dev/null && opens=1
+        unavail=   # (no case here: a bare ")" pattern ends this $( ) in some shells)
+        if [ "${action#pkg:}" != "$action" ]; then
+            if [ "$state" = none ]; then unavail=$(unavailable_packages "${action#pkg:}")
+            elif [ "${state#part:}" != "$state" ]; then unavail=$(unavailable_packages "${state#part:}"); fi
+        fi
         # no empty fields: read splits on runs of tabs
-        printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$label" "$action" "${state:--}" "$key" "$(app_name "$label")" "$opens"
+        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$label" "$action" "${state:--}" "$key" "$(app_name "$label")" \
+            "$opens" "${unavail:--}"
     done)
     wanted=$(mktemp "${TMPDIR:-/tmp}/abyss-wanted.XXXXXX") || return 1
     printf '%s\n' "$rows" | awk -F '\t' '$6 == 1 { print $4 "\t" $5 }' > "$wanted"
@@ -696,14 +734,29 @@ menu_entries() {  # menu_entries ARCH
     fi
     rm -f "$wanted"
     bindings=$(live_bindings) || bindings=
-    printf '%s\n' "$rows" | while IFS='	' read -r label action state key name opens; do
+    printf '%s\n' "$rows" | while IFS='	' read -r label action state key name opens unavail; do
         keys=; [ "$opens" = 1 ] && [ -n "$bindings" ] && keys=$(shortcut_of "$key" "$bindings")
         case $state in
             all) label="$label  ✓ installed${keys:+ · $keys}" ;;
             part:*) label="$label  (partly installed, missing: ${state#part:})${keys:+ · $keys}" ;;
         esac
-        printf '%s\t%s\t%s\t%s\t%s\n' "$label" "$action" "$state" "$key" "$name"
+        if [ "$unavail" != - ]; then
+            case $state in part:*) need=${state#part:} ;; *) need=${action#pkg:} ;; esac
+            if [ "$unavail" = "$need" ]; then label="$label  (not available on $1 right now)"
+            else label="$label  ($unavail not available on $1 right now)"; fi
+        fi
+        printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$label" "$action" "$state" "$key" "$name" "$unavail"
     done
+}
+
+# Every package an entry still needs is missing from the repositories: say
+# so instead of opening an install that can only fail. Trying anyway runs the
+# installer, which updates stale package lists first and names what is
+# missing. Returns 0 to try.
+offer_unavailable() {  # offer_unavailable NAME ARCH
+    answer=$(printf 'Back\nTry anyway\n' |
+        choose -p "$1 is not available for $2 in the enabled repositories right now (Void may be rebuilding it; try again later)") || return 1
+    [ "$answer" = 'Try anyway' ]
 }
 
 # After an install or removal (in its terminal): shortcuts for new apps,
@@ -711,6 +764,7 @@ menu_entries() {  # menu_entries ARCH
 shortcuts_after_change() {
     [ "$(id -u)" -ne 0 ] || return 0
     unset INSTALLED_PKGS
+    REPO_PKGS=   # availability is not shown here: skip that query
     menu_entries "$(machine_arch)" >/dev/null
     printf '%s\n' "$SHORTCUT_CHANGES" | while IFS='	' read -r sign keys name; do
         case $sign in
@@ -899,8 +953,9 @@ case "${1:-}" in
 esac
 
 while :; do
-    unset INSTALLED_PKGS   # re-read: an install may have finished
-    menu=$(menu_entries "$(machine_arch)")
+    unset INSTALLED_PKGS REPO_PKGS   # re-read: an install may have finished
+    menu_arch=$(machine_arch)
+    menu=$(menu_entries "$menu_arch")
     selection=$(printf '%s\n' "$menu" | cut -f1 | choose -p 'Software (type to filter)') || exit 0
     line=$(printf '%s\n' "$menu" | awk -F '\t' -v label="$selection" '$1 == label { print; exit }')
     [ -n "$line" ] || exit 0
@@ -908,12 +963,14 @@ while :; do
     state=$(printf '%s\n' "$line" | cut -f3)
     key=$(printf '%s\n' "$line" | cut -f4)
     name=$(printf '%s\n' "$line" | cut -f5)
+    unavail=$(printf '%s\n' "$line" | cut -f6)
     # Close the menu once a terminal or the app is open, so it gets the focus.
     case $state in
         all|part:*) entry_actions "$action" "$state" "$key" "$name" && exit 0; continue ;;
     esac
     case "$action" in
-        pkg:*) install_packages "${action#pkg:}" && exit 0 ;;
+        pkg:*) if [ "$unavail" = "${action#pkg:}" ]; then offer_unavailable "$name" "$menu_arch" || continue; fi
+               install_packages "${action#pkg:}" && exit 0 ;;
         chrome|antigravity|chatgpt) open_official_page "$(official_page "$action")" ;;
         vscode|artcraft|ollama|claude-code|opencode|cursor) offer_vendor_install "$action" "$name" && exit 0 ;;
         search) search_packages && exit 0 ;;
