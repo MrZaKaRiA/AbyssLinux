@@ -26,6 +26,7 @@
 #   abyss-bar --refresh         make dwm-statusbar update now
 #   abyss-bar --blocks          print the block numbers
 #   abyss-bar --autofill-setup  set up Browserpass for the installed browsers
+#   abyss-bar --pass-edit NAME  edit all fields of a login (in a terminal)
 # ==============================================================================
 
 case ":$PATH:" in *:/usr/local/bin:*) ;; *) PATH="/usr/local/bin:$PATH" ;; esac
@@ -576,13 +577,81 @@ pass_do() {  # pass_do VERB NAME [BODY]
             [ "$new_name" = "$name" ] || pass rm -f -- "$name" >/dev/null 2>&1
             inform "Passwords" "Saved $(pass_label "$new_name")" ;;
         edit)
-            term "Passwords" pass edit -- "$name" ;;
+            term "Passwords" "$SELF" --pass-edit "$name" ;;
         delete)
             c=$(printf 'Keep it\nDelete %s\n' "$label" | dmenu_theme -p "Delete $label? This cannot be undone") || return 0
             [ "$c" = "Delete $label" ] || return 0
             pass rm -f -- "$name" >/dev/null 2>&1 && inform "Passwords" "Deleted $label"
             refresh ;;
     esac
+}
+
+# The text editor for a login: $VISUAL, $EDITOR, then the first installed of
+# nano, vim, vi, vis, micro (a fresh Abyss may have none of them). VS Code
+# ("code --wait" in zz-abyss-cli.sh when it is installed) is passed over: it
+# opens outside the terminal and keeps a copy of what it edits.
+pass_editor() {
+    for e in "${VISUAL:-}" "${EDITOR:-}" nano vim vi vis micro; do
+        c=${e%% *}
+        case ${c##*/} in ''|code|codium|code-oss|vscodium) continue ;; esac
+        has "$c" && { printf '%s\n' "$e"; return 0; }
+    done
+    return 1
+}
+
+# Runs in a terminal: all fields of a login in a text editor (pass edit). With
+# no editor it offers to install nano, else the login is typed again line by
+# line. After an error the window stays open until Enter, so the message can
+# be read (1.0_34 ran "pass edit -- NAME": a usage error, and st closed).
+pass_edit() {  # pass_edit NAME
+    pass_edit_run "$1" && return 0
+    echo
+    printf 'Press Enter to close '; read -r _
+    return 1
+}
+
+pass_edit_run() {
+    name=$1
+    [ -n "$name" ] || { echo 'abyss-bar --pass-edit: which login?'; return 1; }
+    has pass || { echo 'pass is not installed.'; return 1; }
+    label=$(pass_label "$name")
+    if ed=$(pass_editor) || pass_get_nano; then
+        [ -n "$ed" ] || ed=nano
+        echo "Editing $label in ${ed%% *}: save and quit to keep the changes."
+        # pass edit takes no options: "pass edit -- NAME" only prints its usage
+        if EDITOR=$ed pass edit "$name"; then
+            inform "Passwords" "Saved $label"
+            return 0
+        fi
+        echo "$label was not changed."
+        return 1
+    fi
+    echo 'Without a text editor, type the login again instead.'
+    echo "$label now:"
+    echo
+    pass show "$name" || { echo "Could not open $label."; return 1; }
+    echo
+    echo 'Type all of it: the password on the first line, then the other lines'
+    echo '(login: …, url: …). Press Ctrl-D on an empty line to save, Ctrl-C to keep it as it is.'
+    echo
+    new=$(cat) || return 1
+    [ -n "$(printf '%s' "$new" | tr -d '[:space:]')" ] || { echo "Nothing typed: $label is kept as it was."; return 1; }
+    pass_save "$name" "$new" || { echo "Could not save $label."; return 1; }
+    echo "Saved $label."
+}
+
+# No text editor: offer to install nano (xbps-install asks for the password
+# here in the terminal). Succeeds once nano is there.
+pass_get_nano() {
+    ed=
+    echo 'There is no text editor (nano, vim, vi, vis or micro).'
+    has xbps-install || return 1
+    printf 'Install nano now? [Y/n] '
+    read -r a || { echo; return 1; }
+    case $a in [Nn]*) return 1 ;; esac
+    abyss-priv xbps-install -Sy nano && has nano && return 0
+    echo 'nano was not installed.'
+    return 1
 }
 
 # gpg asks for the key's passphrase in a window: also when dmenu or a
@@ -996,6 +1065,7 @@ case ${1:-} in
         click "$module" "${3:-${BLOCK_BUTTON:-1}}" ;;
     --refresh)    refresh ;;
     --pass-setup) pass_setup ;;
+    --pass-edit)  pass_edit "${2:-}" ;;
     --autofill-setup) autofill_setup ;;
     --blocks)     for n in 1 2 3 4 5 6 7 8 9 10; do printf '%s %s\n' "$n" "$(module_of "$n")"; done ;;
     ''|-h|--help) sed -n '3,/^# =====/p' "$SELF" | sed '$d; s/^# \{0,1\}//' ;;

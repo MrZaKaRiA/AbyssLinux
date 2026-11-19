@@ -25,6 +25,13 @@ S=${PASSWORD_STORE_DIR:-$HOME/.password-store}
 cmd=$1; shift
 case $cmd in
     otp) case $1 in version) [ -e "$HOME/otp" ] ;; code) echo 123456 > "$HOME/clipboard" ;; esac; exit ;;
+    # like pass: no options, so "pass edit -- NAME" is a usage error
+    edit) [ $# -eq 1 ] || { echo "Usage: pass edit pass-name" >&2; exit 1; }
+          f="$S/$1.gpg" t="$HOME/edit.txt"
+          cat "$f" > "$t" 2>/dev/null
+          ${EDITOR:-vi} "$t" || exit 1
+          [ "$(cat "$t")" != "$(cat "$f" 2>/dev/null)" ] || { echo "Password for $1 unchanged."; exit 1; }
+          mkdir -p "$(dirname "$f")" && cat "$t" > "$f"; exit ;;
 esac
 clip=
 while [ $# -gt 0 ]; do
@@ -93,10 +100,10 @@ class PasswordsTest(unittest.TestCase):
                 (self.tools / tool).symlink_to(found)
 
     # helpers ----------------------------------------------------------------
-    def bar(self, *args, status=0, **env):
+    def bar(self, *args, status=0, input='', **env):
         env = self.box.env(ABYSS_BROWSERPASS_ROOT=str(self.root), PASSWORD_STORE_CLIP_TIME='1',
                            PATH=f'{self.box.bin}:{self.tools}', **env)
-        result = subprocess.run(['/bin/sh', str(BAR), *args], env=env, stdout=subprocess.PIPE,
+        result = subprocess.run(['/bin/sh', str(BAR), *args], env=env, input=input, stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE, text=True, timeout=30)
         self.assertEqual(result.returncode, status, result.stderr)
         return result.stdout
@@ -307,6 +314,111 @@ class PasswordsTest(unittest.TestCase):
                  ('New username', 'carol2'))
         self.assertEqual(self.entry('example.org/carol2'), 'pw4\nlogin: carol2\n')
         self.assertFalse((self.store / 'example.org.gpg').exists())
+
+    # editing all fields in a terminal ----------------------------------------------
+    def editor(self, name, change=True):
+        """A stub text editor: puts "by NAME" in place of the password."""
+        body = f'echo "{name} $*" >> "$HOME/calls.log"\n'
+        if change:
+            body += 'for f; do :; done\n'   # the file is the last argument
+            body += f'{{ echo "by {name}"; tail -n +2 "$f"; }} > "$f.new" && mv "$f.new" "$f"'
+        stub(self.box.bin, name, body)
+
+    def edit(self, status=0, input='', **env):
+        env = {'VISUAL': '', 'EDITOR': '', **env}
+        return self.bar('--pass-edit', 'github.com/me@example.com', status=status, input=input, **env)
+
+    def test_edit_all_fields_opens_a_terminal_that_edits(self):
+        self.fill_store()
+        self.act('pass-edit', ('Edit login', 'github.com — me@example.com'),
+                 ('github.com — me@example.com', '󰷈  Edit all fields in a terminal…'))
+        self.assertIn(f'st -t Passwords -e {BAR} --pass-edit github.com/me@example.com', self.box.calls())
+        self.editor('nano')
+        out = self.edit()
+        self.assertIn('pass edit github.com/me@example.com', self.box.calls())   # no "--": pass edit takes none
+        self.assertNotIn('Usage', out)
+        self.assertEqual(self.entry('github.com/me@example.com'),
+                         'by nano\nlogin: me@example.com\nurl: https://github.com/\n')
+
+    def test_editor_choice(self):
+        self.fill_store()
+        for name in ('nano', 'vim', 'vi', 'vis', 'micro', 'myed', 'code'):
+            self.editor(name)
+        cases = [
+            ({}, 'nano'),
+            ({'EDITOR': 'myed --flag'}, 'myed'),
+            ({'VISUAL': 'vim', 'EDITOR': 'myed'}, 'vim'),
+            ({'EDITOR': 'not-installed'}, 'nano'),
+            ({'EDITOR': 'code --wait', 'VISUAL': 'code --wait'}, 'nano'),   # VS Code is passed over
+        ]
+        for env, used in cases:
+            with self.subTest(env):
+                (self.home / 'calls.log').unlink(missing_ok=True)
+                self.save('github.com/me@example.com', 'pw1\nlogin: me@example.com\n')
+                self.edit(**env)
+                self.assertEqual(self.entry('github.com/me@example.com'), f'by {used}\nlogin: me@example.com\n')
+                if used == 'myed':                                     # with its options
+                    self.assertIn('myed --flag ', self.box.calls())
+        for name in ('nano', 'vim', 'vi', 'vis'):                     # the order after $VISUAL, $EDITOR
+            (self.box.bin / name).unlink()
+            self.save('github.com/me@example.com', 'pw1\n')
+            self.edit()
+            self.assertEqual(self.entry('github.com/me@example.com'),
+                             'by ' + {'nano': 'vim', 'vim': 'vi', 'vi': 'vis', 'vis': 'micro'}[name] + '\n')
+
+    def test_without_an_editor_the_login_is_typed_again(self):
+        self.fill_store()
+        out = self.edit(input='typed-pw\nlogin: me@example.com\nnotes: new\n')
+        self.assertIn('There is no text editor', out)
+        self.assertIn('pw1\nlogin: me@example.com\nurl: https://github.com/', out)   # what it was
+        self.assertEqual(self.entry('github.com/me@example.com'), 'typed-pw\nlogin: me@example.com\nnotes: new\n')
+        self.assertNotIn('Press Enter', out)
+        out = self.edit(status=1, input='\n \n')                    # nothing typed: kept
+        self.assertIn('Nothing typed', out)
+        self.assertTrue(out.rstrip().endswith('Press Enter to close'), out)
+        self.assertEqual(self.entry('github.com/me@example.com'), 'typed-pw\nlogin: me@example.com\nnotes: new\n')
+
+    def test_without_an_editor_nano_is_offered(self):
+        self.fill_store()
+        stub(self.box.bin, 'abyss-priv', 'echo "abyss-priv $*" >> "$HOME/calls.log"; exec "$@"')
+        # xbps-install "installs" nano: the stub editor waits in $HOME/repo
+        stub(self.box.bin, 'xbps-install', 'echo "xbps-install $*" >> "$HOME/calls.log"\n'
+                                           '[ -e "$HOME/repo/nano" ] || { echo "nano: not found" >&2; exit 2; }\n'
+                                           'mv "$HOME/repo/nano" "$HOME/bin/nano"')
+        # declined: the login is typed again
+        out = self.edit(input='n\ntyped-pw\n')
+        self.assertIn('Install nano now? [Y/n]', out)
+        self.assertNotIn('xbps-install', self.box.calls())
+        self.assertEqual(self.entry('github.com/me@example.com'), 'typed-pw\n')
+        # the install fails: said so, then typed again
+        out = self.edit(input='y\nother-pw\n')
+        self.assertIn('abyss-priv xbps-install -Sy nano', self.box.calls())
+        self.assertIn('nano was not installed.', out)
+        self.assertEqual(self.entry('github.com/me@example.com'), 'other-pw\n')
+        # accepted (Enter): nano is installed and opens the login
+        self.editor('nano')
+        (self.home / 'repo').mkdir()
+        (self.box.bin / 'nano').rename(self.home / 'repo' / 'nano')
+        out = self.edit(input='\n')
+        self.assertIn('Editing github.com — me@example.com in nano', out)
+        self.assertTrue((self.box.bin / 'nano').exists())
+        self.assertEqual(self.entry('github.com/me@example.com'), 'by nano\n')
+        self.assertNotIn('Press Enter', out)
+
+    def test_an_error_keeps_the_terminal_open(self):
+        self.fill_store()
+        self.editor('nano', change=False)                              # quit without saving
+        out = self.edit(status=1, input='\n')
+        self.assertIn('Password for github.com/me@example.com unchanged.', out)
+        self.assertTrue(out.rstrip().endswith('Press Enter to close'), out)
+        stub(self.box.bin, 'pass', 'echo "gpg: decryption failed: No secret key" >&2; exit 2')
+        self.editor('nano')
+        result = subprocess.run(['/bin/sh', str(BAR), '--pass-edit', 'github.com/me@example.com'],
+                                env=self.box.env(PATH=f'{self.box.bin}:{self.tools}', VISUAL='', EDITOR=''),
+                                input='\n', stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=30)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn('gpg: decryption failed', result.stdout)
+        self.assertTrue(result.stdout.rstrip().endswith('Press Enter to close'), result.stdout)
 
     def test_delete_asks_first(self):
         self.fill_store()
