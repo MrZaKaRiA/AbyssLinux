@@ -1,7 +1,11 @@
 #!/bin/sh
 # First-run and desktop setup for Abyss Linux.
 
-PATH="/usr/local/bin:$HOME/.local/bin:$PATH"
+# the Abyss commands and the user's own, without putting them before a PATH
+# that already has them (tests run stubs first)
+for d in "$HOME/.local/bin" /usr/local/bin; do
+    case ":$PATH:" in *":$d:"*) ;; *) PATH="$d:$PATH" ;; esac
+done
 FONT='JetBrainsMono Nerd Font:size=10'
 NB='#0d0b18' NF='#f3e8ff' SB='#a855f7' SF='#090514'
 choose() { dmenu -i -c -l 14 -fn "$FONT" -nb "$NB" -nf "$NF" -sb "$SB" -sf "$SF" "$@"; }
@@ -74,15 +78,32 @@ menu() {
     done
 }
 
+# The welcome prompt (--first-run, started by ~/.xinitrc at each login) is
+# shown until setup has been opened once, "Do not show again" is picked, or
+# it was put off (Later, Esc, closed) at FIRST_RUN_SHOWS logins: the first
+# login and one reminder, never a prompt at every login.
+FIRST_RUN_DONE="$HOME/.config/abyss/.first-run-done"
+FIRST_RUN_LATER="$HOME/.config/abyss/.first-run-later"   # logins it was put off
+FIRST_RUN_SHOWS=2
+first_run_done() { mkdir -p "${FIRST_RUN_DONE%/*}" && : > "$FIRST_RUN_DONE"; }
+
 if [ "${1:-}" = --first-run ]; then
-    marker="$HOME/.config/abyss/.first-run-done"
-    [ -e "$marker" ] && exit 0
-    sleep 4
-    choice=$(printf '%s\n' 'Start setup' 'Later' 'Do not show again' | choose -p 'Welcome to Abyss Linux') || exit 0
+    [ -e "$FIRST_RUN_DONE" ] && exit 0
+    later=$(cat "$FIRST_RUN_LATER" 2>/dev/null)
+    case $later in ''|*[!0-9]*) later=0 ;; esac
+    [ "$later" -ge "$FIRST_RUN_SHOWS" ] && { first_run_done; exit 0; }
+    sleep "${ABYSS_FIRST_RUN_DELAY:-4}"
+    choice=$(printf '%s\n' 'Start setup' 'Later' 'Do not show again' | choose -p 'Welcome to Abyss Linux') ||
+        choice=Later   # Esc or closed: put off, like Later
     case "$choice" in
-        'Start setup') menu; mkdir -p "${marker%/*}"; : > "$marker" ;;
-        'Do not show again') mkdir -p "${marker%/*}"; : > "$marker" ;;
+        'Start setup') first_run_done; menu ;;
+        'Do not show again') first_run_done ;;
+        *) later=$((later + 1))
+           if [ "$later" -ge "$FIRST_RUN_SHOWS" ]; then first_run_done; rm -f "$FIRST_RUN_LATER"
+           else mkdir -p "${FIRST_RUN_LATER%/*}" && echo "$later" > "$FIRST_RUN_LATER"; fi ;;
     esac
 else
+    first_run_done   # setup was opened: no welcome prompt at later logins
     menu
 fi
+exit 0

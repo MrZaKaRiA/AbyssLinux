@@ -1,7 +1,11 @@
 #!/bin/sh
 # Minimal on-demand software browser for Void Linux.
 
-PATH="/usr/local/bin:$HOME/.local/bin:$PATH"
+# the Abyss commands and the user's own, without putting them before a PATH
+# that already has them (tests run stubs first)
+for d in "$HOME/.local/bin" /usr/local/bin; do
+    case ":$PATH:" in *":$d:"*) ;; *) PATH="$d:$PATH" ;; esac
+done
 NB='#0d0b18' NF='#f3e8ff' SB='#a855f7' SF='#090514'
 FONT='JetBrainsMono Nerd Font:size=10'
 
@@ -519,20 +523,43 @@ is_installed() {  # is_installed ACTION; status 0 when fully installed
     esac
 }
 
-# The desktop file that starts command CMD: CMD.desktop, else one whose
-# Exec line runs CMD (org.pulseaudio.pavucontrol.desktop).
+# The command line of desktop file FILE (its Exec, without %U and the other
+# field codes) when FILE is an app the menus show: Type=Application with an
+# Exec line, not NoDisplay or Hidden. Those are services and helpers: Void's
+# pipewire.desktop runs the PipeWire daemon (NoDisplay), so the Audio bundle
+# opens pavucontrol. Status 1 for anything else.
+desktop_exec() {  # desktop_exec FILE
+    [ -f "$1" ] || return 1
+    awk '/^\[/ { main = ($0 == "[Desktop Entry]"); next }
+        !main { next }
+        { k = $0; sub(/[ \t]*=.*/, "", k); v = $0; sub(/^[^=]*=[ \t]*/, "", v) }
+        k == "Type" { type = v } k == "Exec" { exec = v }
+        k == "NoDisplay" && v == "true" { hidden = 1 }
+        k == "Hidden" && v == "true" { hidden = 1 }
+        END {
+            gsub(/%[fFuUdDnNickvm]/, "", exec); gsub(/%%/, "%", exec)
+            gsub(/^[ \t]+|[ \t]+$/, "", exec)
+            if (type != "Application" || hidden || exec == "") exit 1
+            print exec
+        }' "$1"
+}
+
+# The desktop file of the app that command CMD is: CMD.desktop, else one
+# whose Exec line runs CMD (org.pulseaudio.pavucontrol.desktop); only
+# files desktop_exec accepts.
 desktop_file() {  # desktop_file CMD
     dir=${ABYSS_APPLICATIONS_DIR:-/usr/share/applications}
-    [ -e "$dir/$1.desktop" ] && { printf '%s\n' "$dir/$1.desktop"; return 0; }
-    found=$(grep -lE "^Exec=(/usr/bin/)?$1( |\$)" "$dir"/*.desktop 2>/dev/null | head -n 1)
-    [ -n "$found" ] && printf '%s\n' "$found"
+    for f in "$dir/$1.desktop" $(grep -lE "^Exec=(/usr/bin/)?$1( |\$)" "$dir"/*.desktop 2>/dev/null); do
+        desktop_exec "$f" >/dev/null 2>&1 && { printf '%s\n' "$f"; return 0; }
+    done
+    return 1
 }
 
 # The first package of a bundle that is a desktop application, as a command.
 app_command() {
     for pkg in $1; do
         cmd=$(printf '%s' "$pkg" | tr 'A-Z' 'a-z')
-        if has "$cmd" && [ -n "$(desktop_file "$cmd")" ]; then
+        if has "$cmd" && desktop_file "$cmd" >/dev/null; then
             printf '%s\n' "$cmd"; return 0
         fi
     done
@@ -547,10 +574,12 @@ quote() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
 open_command() {  # open_command ACTION
     case $1 in
         pkg:*)
-            cmd=$(app_command "${1#pkg:}") || return 1
-            if grep -q '^Terminal=true' "$(desktop_file "$cmd")" 2>/dev/null; then
-                printf 'term\t%s\n' "$cmd"
-            else printf 'exec\t%s\n' "$cmd"; fi ;;
+            # the app's own command line: a bare "mpv" only prints its usage
+            cmd=$(app_command "${1#pkg:}") && app_file=$(desktop_file "$cmd") &&
+                app_run=$(desktop_exec "$app_file") || return 1
+            if grep -q '^Terminal=true' "$app_file" 2>/dev/null; then
+                printf 'term\t%s\n' "$app_run"
+            else printf 'exec\t%s\n' "$app_run"; fi ;;
         search|chatgpt) return 1 ;;
         *)
             path=$(vendor_path "$1"); [ -n "$path" ] || return 1
@@ -889,7 +918,7 @@ change_shortcut() {  # change_shortcut KEY NAME
 entry_actions() {  # entry_actions ACTION STATE KEY NAME
     action=$1 state=$2 key=$3 name=$4 options=
     how=$(open_command "$action") || how=
-    case $action in pkg:*) pkgs=${action#pkg:}; opener="Open ${how#*	}" ;; *) opener="Open $name" ;; esac
+    case $action in pkg:*) pkgs=${action#pkg:}; opener="Open $(app_command "$pkgs")" ;; *) opener="Open $name" ;; esac
     [ -n "$how" ] && options="$opener
 "
     prompt="$name: installed"

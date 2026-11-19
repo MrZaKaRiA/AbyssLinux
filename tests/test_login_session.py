@@ -14,6 +14,11 @@ named the root window. Covers:
     in PATH, which turns exactly the old command into abyss-wallpaper;
   * the current .xinitrc names the root window and draws the wallpaper
     (in the foreground) before dwm starts, and not again after abyss-session;
+  * PipeWire: abyss-session runs session-audio start before the user's
+    ~/.xinitrc and session-audio stop when it ends, and turns the
+    `pgrep ... || pipewire &` blocks of an edited older ~/.xinitrc into one
+    session-audio call (keeping the rest, with ~/.xinitrc.abyss-audio-old);
+    the current .xinitrc starts it with session-audio too;
   * the overlay and the abyss-desktop package carry the same files.
 """
 import hashlib
@@ -47,6 +52,8 @@ AUTOSTART = first(os.environ.get('ABYSS_SKEL_AUTOSTART'), OVERLAY / 'etc/skel/.d
 LEGACY_FEH = first(os.environ.get('ABYSS_LEGACY_FEH'), PKG and Path(PKG) / 'files/legacy-feh')
 DEFAULT = '/usr/share/backgrounds/abyss/abyss-wallpaper.jpg'
 LEGACY_LINE = f'feh --bg-fill {DEFAULT} &\n'
+AUDIO_LINE = ('[ -x /usr/libexec/abyss-desktop/session-audio ] && '
+              '/usr/libexec/abyss-desktop/session-audio start')
 
 
 def sha(data):
@@ -84,7 +91,9 @@ class Stubs:
 
     def env(self, **extra):
         env = {'HOME': str(self.home), 'PATH': f'{self.bin}:/usr/bin:/bin:/usr/sbin:/sbin',
-               'DBUS_SESSION_BUS_ADDRESS': 'unix:path=/nonexistent', 'LC_ALL': 'C'}
+               'DBUS_SESSION_BUS_ADDRESS': 'unix:path=/nonexistent', 'LC_ALL': 'C',
+               # never the installed one (it would end the host's PipeWire)
+               'ABYSS_SESSION_AUDIO': str(self.dir / 'no-session-audio')}
         env.update(extra)
         return env
 
@@ -185,7 +194,11 @@ class MigrationTest(unittest.TestCase):
             with self.subTest(name):
                 p = self.put('.xinitrc', data)
                 self.run_session()
-                self.assertEqual(p.read_bytes(), data)
+                if name == 'edited':     # only its PipeWire lines change (AudioMigrationTest)
+                    self.assertTrue(p.read_bytes().endswith(b'\n# my change\n'))
+                    self.assertNotEqual(p.read_bytes(), (self.skel / '.xinitrc').read_bytes())
+                else:
+                    self.assertEqual(p.read_bytes(), data)
                 self.assertFalse((self.s.home / '.xinitrc.abyss-old').exists())
         with self.subTest('symlink'):
             target = self.s.dir / 'my-xinitrc'
@@ -285,7 +298,7 @@ class XinitrcOrderTest(unittest.TestCase):
     """The current .xinitrc, run with logging stand-ins (startx and LightDM)."""
     NAMES = ['xsetroot', 'abyss-wallpaper', 'dwm', 'abyss-display', 'abyss-scale', 'xset', 'xrdb',
              'wmname', 'abyss-setup', 'xdg-user-dirs-update', 'pipewire', 'wireplumber',
-             'pipewire-pulse', 'xss-lock', 'pgrep', 'dbus-run-session']
+             'pipewire-pulse', 'xss-lock', 'pgrep', 'pkill', 'dbus-run-session']
 
     def run_xinitrc(self, **env):
         s = Stubs(self, self.NAMES)
@@ -315,6 +328,134 @@ class XinitrcOrderTest(unittest.TestCase):
         self.assertNotIn('feh ', text)
         self.assertLess(text.index('xsetroot -name " "'), text.index('dwm-statusbar &'))
 
+    def test_audio_is_started_by_session_audio(self):
+        text = XINITRC.read_text()
+        self.assertEqual(text.count(AUDIO_LINE), 1)
+        self.assertLess(text.index(AUDIO_LINE), text.index('exec dwm'))
+        for name in ('pipewire', 'wireplumber', 'pipewire-pulse'):
+            self.assertNotIn(f'-x {name}', text)
+            self.assertNotRegex(text, rf'(?m)^\s*{name} &')
+
+
+def strip_audio_blocks(text):
+    """The old file with its PipeWire start blocks replaced the way abyss-session does."""
+    out, done = [], False
+    lines = text.split('\n')
+    i = 0
+    while i < len(lines):
+        m = re.fullmatch(r'if command -v ([a-z-]+) >/dev/null 2>&1 && ! pgrep (?:-u "\$\(id -u\)" )?-x \1 '
+                         r'>/dev/null 2>&1; then', lines[i])
+        if m and m.group(1) in ('pipewire', 'wireplumber', 'pipewire-pulse') and \
+                lines[i + 1:i + 3] == [f'    {m.group(1)} &', 'fi']:
+            if not done:
+                out.append(AUDIO_LINE)
+            done = True
+            i += 3
+            continue
+        out.append(lines[i])
+        i += 1
+    return '\n'.join(out)
+
+
+@unittest.skipUnless(SESSION, 'abyss-session not found; set ABYSS_SESSION')
+class AudioMigrationTest(unittest.TestCase):
+    """Edited ~/.xinitrc files of every version: their PipeWire lines only."""
+
+    def setUp(self):
+        self.s = Stubs(self, ['xsetroot', 'abyss-wallpaper', 'pgrep', 'pkill', 'dwm', 'dbus-run-session',
+                              'pipewire', 'wireplumber', 'pipewire-pulse'])
+        self.skel = self.s.dir / 'skel'
+        self.skel.mkdir()
+        (self.skel / '.xinitrc').write_text('# current\n')
+        self.audio = self.s.bin / 'session-audio'
+        self.s.stub('session-audio')
+
+    def run_session(self):
+        r = subprocess.run(['/bin/sh', str(SESSION)],
+                           env=self.s.env(ABYSS_SKEL_DIR=str(self.skel), ABYSS_SESSION_AUDIO=str(self.audio),
+                                          ABYSS_LEGACY_DIR=str(self.s.dir / 'nolegacy')),
+                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=30)
+        self.assertEqual(r.returncode, 0, r.stdout)
+        return r.stdout
+
+    def test_every_edited_version_starts_audio_with_session_audio(self):
+        for fx in fixtures('xinitrc'):
+            with self.subTest(fx.name):
+                old = '# my own line\n' + fx.read_text().replace('exec dwm', 'exec dwm  # edited')
+                p = self.s.home / '.xinitrc'
+                p.write_text(old)
+                p.chmod(0o700)
+                backup = self.s.home / '.xinitrc.abyss-audio-old'
+                backup.unlink(missing_ok=True)
+                self.s.log.unlink(missing_ok=True)
+                out = self.run_session()
+                new = p.read_text()
+                self.assertEqual(new, strip_audio_blocks(old))
+                self.assertEqual(new.count(AUDIO_LINE), 1)
+                self.assertNotRegex(new, r'(?m)^\s*(pipewire|wireplumber|pipewire-pulse) &')
+                self.assertIn('# my own line', new)
+                self.assertEqual(backup.read_text(), old)
+                self.assertEqual(p.stat().st_mode & 0o777, 0o700)
+                self.assertIn('session-audio', out)
+                self.assertEqual([f for f in os.listdir(self.s.home) if f.startswith('.xinitrc.')
+                                  and f != '.xinitrc.abyss-audio-old'], [])
+                calls = self.s.session_calls()
+                self.assertLess(calls.index('session-audio start'), calls.index('dwm '))
+                self.assertEqual(calls[-1], 'session-audio stop')
+                # a second login changes nothing
+                backup.unlink()
+                self.assertNotIn('abyss-audio-old', self.run_session())
+                self.assertEqual(p.read_text(), new)
+                self.assertFalse(backup.exists())
+
+    def test_other_audio_lines_and_links_are_kept(self):
+        cases = {'own pipewire line': '#!/bin/sh\npipewire &\nexec dwm\n',
+                 'changed block': '#!/bin/sh\nif ! pgrep -x pipewire; then\n    pipewire &\nfi\nexec dwm\n',
+                 'no audio': '#!/bin/sh\nexec dwm\n'}
+        for name, data in cases.items():
+            with self.subTest(name):
+                p = self.s.home / '.xinitrc'
+                p.write_text(data)
+                self.run_session()
+                self.assertEqual(p.read_text(), data)
+                self.assertFalse((self.s.home / '.xinitrc.abyss-audio-old').exists())
+        with self.subTest('symlink'):
+            target = self.s.dir / 'my-xinitrc'
+            old = '# mine\n' + fixtures('xinitrc')[0].read_text()
+            target.write_text(old)
+            (self.s.home / '.xinitrc').unlink()
+            (self.s.home / '.xinitrc').symlink_to(target)
+            self.run_session()
+            self.assertEqual(target.read_text(), old)
+            self.assertFalse((self.s.home / '.xinitrc.abyss-audio-old').exists())
+
+
+@unittest.skipUnless(SESSION, 'abyss-session not found; set ABYSS_SESSION')
+class SessionAudioCallTest(unittest.TestCase):
+    """abyss-session starts the session's PipeWire first and ends it after dwm."""
+
+    def setUp(self):
+        self.s = Stubs(self, ['xsetroot', 'abyss-wallpaper', 'pgrep'])
+        self.audio = self.s.bin / 'session-audio'
+
+    def run_session(self, xinitrc):
+        (self.s.home / '.xinitrc').write_text(xinitrc)
+        return subprocess.run(['/bin/sh', str(SESSION)],
+                              env=self.s.env(ABYSS_SKEL_DIR=str(self.s.dir / 'noskel'),
+                                             ABYSS_SESSION_AUDIO=str(self.audio)),
+                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=30)
+
+    def test_start_before_and_stop_after_the_session(self):
+        self.s.stub('session-audio')
+        r = self.run_session(f'echo "dwm runs" >> "{self.s.log}"\nexit 3\n')
+        self.assertEqual(r.returncode, 3, r.stdout)          # the session's own status
+        self.assertEqual(self.s.session_calls()[-3:], ['session-audio start', 'dwm runs', 'session-audio stop'])
+
+    def test_without_session_audio(self):
+        r = self.run_session(f'echo "dwm runs" >> "{self.s.log}"\n')
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertEqual(self.s.session_calls()[-1], 'dwm runs')
+
 
 @unittest.skipUnless(OVERLAY.is_dir() and PKG, 'needs the AbyssLinux overlay and the abyss-desktop package')
 class OverlayPackageTest(unittest.TestCase):
@@ -333,6 +474,7 @@ class OverlayPackageTest(unittest.TestCase):
         self.assertIn('usr/share/abyss/skel .xinitrc', t)
         self.assertIn('usr/share/abyss/skel/.dwm autostart.sh', t)
         self.assertIn('usr/libexec/abyss-desktop/legacy feh', t)
+        self.assertIn('vinstall ${FILESDIR}/session-audio 755 usr/libexec/abyss-desktop', t)
 
 
 if __name__ == '__main__':

@@ -181,7 +181,10 @@ class StubbedTest(unittest.TestCase):
         self.stub('dmenu', DMENU)
         self.stub('notify-send', '''printf '%s\\n' "$*" >> "$HOME/notify.log"''')
         self.stub('setsid', '[ "$1" = -f ] && shift; printf \'%s\\n\' "$*" >> "$HOME/setsid.log"')
-        self.env = {'HOME': str(self.root), 'PATH': str(self.bin), 'TMPDIR': str(self.root),
+        # the stubs first: abyss-software adds ~/.local/bin and /usr/local/bin
+        # (real Abyss commands on an Abyss system) only when PATH lacks them
+        self.env = {'HOME': str(self.root), 'PATH': f'{self.bin}:{self.root}/.local/bin:/usr/local/bin',
+                    'TMPDIR': str(self.root),
                     'ABYSS_RETRY_PAUSE': '0', 'ABYSS_LOCK_POLL': '0',
                     'ABYSS_SYNC_STAMP': str(self.root / 'synced')}
 
@@ -446,7 +449,7 @@ class InstallerTest(StubbedTest):
     def test_installed_bundle_offers_open_update_and_remove(self):
         self.write('installed', 'firefox\n')
         (self.root / 'applications').mkdir()
-        self.write('applications/firefox.desktop', '')
+        self.write('applications/firefox.desktop', '[Desktop Entry]\nType=Application\nExec=firefox %u\n')
         self.stub('firefox', 'exit 0')
         self.menu('Firefox (Void package)  ✓ installed', 'Update')
         self.assertIn('Open firefox', self.log('dmenu.log'))

@@ -2,6 +2,10 @@
 
 ## v27.3.5 (2026-11-19)
 
+* **Sound after logging out and back in:** the volume block and sound controls no longer disappear after a logout. Abyss starts PipeWire fresh for each session and stops it at logout; older `~/.xinitrc` files are updated automatically (your own edits are kept, with a backup).
+* Install software: an app's keyboard shortcut opens the app itself. Super+Alt+A for Audio support now opens the volume mixer instead of restarting PipeWire, existing shortcuts are corrected and keep their keys, Media tools opens an mpv window, and bundles with nothing to open no longer get a shortcut.
+* Passwords: GnuPG's passphrase window now uses the dark Abyss look.
+* The "Welcome to Abyss Linux" prompt no longer returns at every login: Esc counts as Later, it shows at most twice, and opening setup once ends it.
 * Install software marks an app that Void has not built for your architecture right now ("not available on x86_64 right now") instead of failing when you install it.
 * **Disk space stays under control:** after every successful upgrade or install, replaced package versions are removed from the package cache and the freed space is shown (current packages stay for offline reinstalls). Update system no longer removes unneeded packages without asking; it lists them, and `cleanup` removes them.
 * New weekly TRIM service `abyss-fstrim`: keeps SSDs fast and lets virtual machine disk images shrink after files are deleted. Enabled once on existing systems and in new images; log in `/var/log/abyss-fstrim.log`; turn it off with `doas rm /var/service/abyss-fstrim`.

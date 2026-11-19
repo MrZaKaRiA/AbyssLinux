@@ -57,16 +57,9 @@ command -v abyss-scale >/dev/null 2>&1 && abyss-scale --login
 # Create standard user folders when the matching Void utility is installed.
 command -v xdg-user-dirs-update >/dev/null 2>&1 && xdg-user-dirs-update
 
-# Start optional PipeWire components if the user installed audio support.
-if command -v pipewire >/dev/null 2>&1 && ! pgrep -u "$(id -u)" -x pipewire >/dev/null 2>&1; then
-    pipewire &
-fi
-if command -v wireplumber >/dev/null 2>&1 && ! pgrep -u "$(id -u)" -x wireplumber >/dev/null 2>&1; then
-    wireplumber &
-fi
-if command -v pipewire-pulse >/dev/null 2>&1 && ! pgrep -u "$(id -u)" -x pipewire-pulse >/dev/null 2>&1; then
-    pipewire-pulse &
-fi
+# PipeWire audio, once the user installed audio support: started fresh for
+# this session (a previous session's one can outlive its logout).
+[ -x /usr/libexec/abyss-desktop/session-audio ] && /usr/libexec/abyss-desktop/session-audio start
 # xss-lock listens for elogind sleep/lock requests, including lid close.
 if [ -z "${ABYSS_LOCK_LISTENER_STARTED:-}" ] && command -v xss-lock >/dev/null 2>&1 && command -v slock >/dev/null 2>&1 && ! pgrep -u "$(id -u)" -x xss-lock >/dev/null 2>&1; then
     xss-lock --transfer-sleep-lock -- slock &

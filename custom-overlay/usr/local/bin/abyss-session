@@ -48,7 +48,8 @@ update_login_file() {
     3ea51b8a08c6895438c79bccb102c291d739ad6d15cc53bd4a2c40713ce2db6f*|\
     52b77de39ff745b04bda5a964db73c33d7cc18fc4490e29ecaa4cfc32b296920*|\
     9706c30a5386f6545f5c30ca64bf6818ceb823efb532819fc40dfe938a1fe992*|\
-    73e512f52011c8b80ce8fe761161b5cf09fc359ceeca7cb87b21197429c81806*) ;;   # .xinitrc
+    73e512f52011c8b80ce8fe761161b5cf09fc359ceeca7cb87b21197429c81806*|\
+    aafd9e1da57bc5742fde7ba5ffb427e1fc5405d696fbd6c3afd417d75648c07b*) ;;   # .xinitrc
     db3301467e9d1bc48cd71e40e761fff82bb1cc0d904dfb49bb349c92533d5c2b*|\
     9fc7588af450ddb5af2a92617875a83572f9a8ac54a3ad5f922ee92e86d9772d*) ;;   # .dwm/autostart.sh
     *) return 0 ;;
@@ -62,6 +63,45 @@ update_login_file() {
 }
 update_login_file .xinitrc
 update_login_file .dwm/autostart.sh
+
+# ---- PipeWire ----------------------------------------------------------------
+# Older ~/.xinitrc files start pipewire, wireplumber and pipewire-pulse only
+# when `pgrep` finds none, and the previous session's pipewire outlives the
+# logout: after logging out and in again there was no sound. session-audio
+# (abyss-desktop) starts them fresh for each session and ends them at logout.
+# In an edited ~/.xinitrc those `if ... pgrep ...; then pipewire &; fi`
+# blocks become one call of it; the rest of the file is kept, and the old one
+# is ~/.xinitrc.abyss-audio-old.
+AUDIO="${ABYSS_SESSION_AUDIO:-/usr/libexec/abyss-desktop/session-audio}"
+AUDIO_LINE='[ -x /usr/libexec/abyss-desktop/session-audio ] && /usr/libexec/abyss-desktop/session-audio start'
+update_audio_lines() {
+    cur="$HOME/.xinitrc"
+    [ -x "$AUDIO" ] && [ -f "$cur" ] && [ ! -L "$cur" ] && grep -qsx '    pipewire &' "$cur" || return 0
+    tmp=$(mktemp "$cur.XXXXXX" 2>/dev/null) || return 0
+    if awk -v line="$AUDIO_LINE" '
+        function block(i,   n) {   # the part a 3-line start block at line i starts
+            if (L[i] !~ /^if command -v [a-z-]+ >\/dev\/null 2>&1 && ! pgrep (-u "\$\(id -u\)" )?-x [a-z-]+ >\/dev\/null 2>&1; then$/) return ""
+            n = L[i]; sub(/^if command -v /, "", n); sub(/ .*/, "", n)
+            if (n != "pipewire" && n != "wireplumber" && n != "pipewire-pulse") return ""
+            if (index(L[i], " -x " n " >") == 0 || L[i + 1] != "    " n " &" || L[i + 2] != "fi") return ""
+            return n
+        }
+        { L[NR] = $0 }
+        END {
+            for (i = 1; i <= NR; i++) {
+                if (block(i) != "") {
+                    if (!done) print line
+                    done = 1; i += 2; continue
+                }
+                print L[i]
+            }
+        }' "$cur" > "$tmp" && ! cmp -s "$cur" "$tmp" &&
+        cp -p "$cur" "$cur.abyss-audio-old" && cat "$tmp" > "$cur"; then
+        echo "abyss-session: ~/.xinitrc now starts PipeWire with session-audio (the old one is ~/.xinitrc.abyss-audio-old)" >&2
+    fi
+    rm -f "$tmp"
+}
+update_audio_lines
 
 # dwm shows "dwm-6.8" as its status text until the root window has a name:
 # an empty one until the status bar's first line.
@@ -85,8 +125,25 @@ fi
 command -v abyss-wallpaper >/dev/null 2>&1 && abyss-wallpaper --legacy >/dev/null 2>&1 &
 # Your own wallpapers: copy images here, or use Menu > Settings > Display > Wallpaper…
 mkdir -p "$HOME/.local/share/backgrounds" 2>/dev/null
+# Sound for this session (also for edited files that start PipeWire their own
+# way: they find it running).
+[ -x "$AUDIO" ] && "$AUDIO" start
+# The session ends when the file's `exec dwm` returns; its PipeWire ends with
+# it instead of lingering into the next login.
+# A stop signal for the session (LightDM ending it) goes on to the desktop.
+run_session() {
+    /bin/sh "$1" <&0 &
+    child=$!
+    trap 'kill -TERM "$child" 2>/dev/null' TERM HUP INT
+    wait "$child"
+    status=$?
+    while kill -0 "$child" 2>/dev/null; do wait "$child"; status=$?; done
+    trap - TERM HUP INT
+    [ -x "$AUDIO" ] && "$AUDIO" stop
+    exit $status
+}
 if [ -f "$HOME/.xinitrc" ]; then
-    exec /bin/sh "$HOME/.xinitrc"
+    run_session "$HOME/.xinitrc"
 fi
-[ -f "$SKEL/.xinitrc" ] && exec /bin/sh "$SKEL/.xinitrc"
-exec /bin/sh /etc/skel/.xinitrc
+[ -f "$SKEL/.xinitrc" ] && run_session "$SKEL/.xinitrc"
+run_session /etc/skel/.xinitrc

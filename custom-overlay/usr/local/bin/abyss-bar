@@ -655,12 +655,25 @@ pass_get_nano() {
 }
 
 # gpg asks for the key's passphrase in a window: also when dmenu or a
-# browser (Browserpass) decrypts a login, where there is no terminal.
+# browser (Browserpass) decrypts a login, where there is no terminal. The
+# window is pinentry-gtk-2 through abyss-desktop's wrapper, which gives it
+# the dark Abyss colours (GTK 2 ignores the GTK 3 theme). Older versions
+# wrote pinentry-gtk-2 itself: that line becomes the wrapper (run before
+# each decryption, so the next passphrase window is dark). Any other
+# pinentry-program is the user's choice and stays.
+PINENTRY_GTK=${ABYSS_PINENTRY_GTK:-/usr/bin/pinentry-gtk-2}
+PINENTRY_ABYSS=${ABYSS_PINENTRY:-/usr/libexec/abyss-desktop/pinentry}
 pass_pinentry() {
-    [ -x /usr/bin/pinentry-gtk-2 ] || return 0
-    grep -qs '^pinentry-program' "$HOME/.gnupg/gpg-agent.conf" && return 0
-    mkdir -p -m 700 "$HOME/.gnupg" &&
-        echo 'pinentry-program /usr/bin/pinentry-gtk-2' >> "$HOME/.gnupg/gpg-agent.conf"
+    [ -x "$PINENTRY_GTK" ] || return 0
+    want=$PINENTRY_GTK; [ -x "$PINENTRY_ABYSS" ] && want=$PINENTRY_ABYSS
+    conf=$HOME/.gnupg/gpg-agent.conf
+    if grep -qs '^pinentry-program' "$conf"; then
+        [ "$want" != "$PINENTRY_GTK" ] && grep -qx "pinentry-program $PINENTRY_GTK" "$conf" || return 0
+        new=$(awk -v old="pinentry-program $PINENTRY_GTK" -v new="pinentry-program $want" \
+            '{ print ($0 == old ? new : $0) }' "$conf") && printf '%s\n' "$new" > "$conf" || return 0
+    else
+        mkdir -p -m 700 "$HOME/.gnupg" && echo "pinentry-program $want" >> "$conf" || return 0
+    fi
     gpgconf --kill gpg-agent 2>/dev/null
     return 0
 }
@@ -997,6 +1010,7 @@ set_time_zone() {
 
 # ---- dispatch ----------------------------------------------------------------
 act() {
+    case $1 in pass-*) pass_pinentry ;; esac   # the passphrase window gpg opens
     case $1 in
         ''|-)          ;;
         cc:*)          center "${1#cc:}" ;;

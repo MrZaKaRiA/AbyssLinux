@@ -102,7 +102,7 @@ class PasswordsTest(unittest.TestCase):
     # helpers ----------------------------------------------------------------
     def bar(self, *args, status=0, input='', **env):
         env = self.box.env(ABYSS_BROWSERPASS_ROOT=str(self.root), PASSWORD_STORE_CLIP_TIME='1',
-                           PATH=f'{self.box.bin}:{self.tools}', **env)
+                           PATH=f'{self.box.bin}:{self.tools}:/usr/local/bin', **env)   # abyss-bar adds it when missing
         result = subprocess.run(['/bin/sh', str(BAR), *args], env=env, input=input, stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE, text=True, timeout=30)
         self.assertEqual(result.returncode, status, result.stderr)
@@ -512,6 +512,119 @@ class PasswordsTest(unittest.TestCase):
     def test_setup_without_browserpass_explains(self):
         out = self.bar('--autofill-setup', status=1)
         self.assertIn('browserpass is not installed', out)
+
+    # the passphrase window ------------------------------------------------------
+    def pinentry(self, conf=None, wrapper=True):
+        """pinentry-gtk-2 (and abyss-desktop's dark wrapper) installed; CONF is
+        ~/.gnupg/gpg-agent.conf. Returns the environment for abyss-bar."""
+        for path in [self.home / 'usr/bin/pinentry-gtk-2'] + ([self.home / 'libexec/pinentry'] if wrapper else []):
+            stub(path.parent, path.name, 'exit 0')
+        stub(self.box.bin, 'gpgconf', 'echo "gpgconf $*" >> "$HOME/calls.log"')
+        if conf is not None:
+            write(self.home / '.gnupg/gpg-agent.conf', conf)
+        return dict(ABYSS_PINENTRY_GTK=str(self.home / 'usr/bin/pinentry-gtk-2'),
+                    ABYSS_PINENTRY=str(self.home / 'libexec/pinentry'))
+
+    def copy_with(self, env):
+        self.fill_store()
+        self.box.file('pick', 'pass-copy\n')
+        self.box.file('answers', 'Copy password\tweb/github\n')
+        (self.home / 'calls.log').unlink(missing_ok=True)
+        self.bar('--click', '3', '1', **env)
+        self.assertEqual(self.clipboard(), 'legacy\n')
+
+    def agent_conf(self):
+        return (self.home / '.gnupg/gpg-agent.conf').read_text()
+
+    def test_passphrase_window_of_an_older_version_becomes_the_dark_one(self):
+        # the line older versions wrote: pinentry-program /usr/bin/pinentry-gtk-2
+        env = self.pinentry(f'default-cache-ttl 600\npinentry-program {self.home}/usr/bin/pinentry-gtk-2\n'
+                            'allow-loopback-pinentry\n')
+        self.copy_with(env)
+        self.assertEqual(self.agent_conf(), f'default-cache-ttl 600\npinentry-program {self.home}/libexec/pinentry\n'
+                                            'allow-loopback-pinentry\n')
+        self.assertIn('gpgconf --kill gpg-agent', self.box.calls())       # the agent reads it again
+        self.copy_with(env)                                               # once
+        self.assertNotIn('gpgconf', self.box.calls())
+
+    def test_first_passphrase_window_is_the_dark_one(self):
+        env = self.pinentry()
+        self.copy_with(env)
+        self.assertEqual(self.agent_conf(), f'pinentry-program {self.home}/libexec/pinentry\n')
+        self.assertIn('gpgconf --kill gpg-agent', self.box.calls())
+
+    def test_the_users_own_pinentry_is_kept(self):
+        env = self.pinentry('pinentry-program /usr/bin/pinentry-qt\n')
+        self.copy_with(env)
+        self.assertEqual(self.agent_conf(), 'pinentry-program /usr/bin/pinentry-qt\n')
+        self.assertNotIn('gpgconf', self.box.calls())
+
+    def test_without_the_wrapper_pinentry_gtk_2_itself(self):
+        env = self.pinentry(wrapper=False)
+        self.copy_with(env)
+        self.assertEqual(self.agent_conf(), f'pinentry-program {self.home}/usr/bin/pinentry-gtk-2\n')
+
+
+PKG = os.environ.get('ABYSS_DESKTOP_PKG') or next(
+    (str(p) for p in (Path(__file__).resolve().parents[1] / 'srcpkgs/abyss-desktop',
+                      Path(__file__).resolve().parents[2] / 'AbyssLinuxPMR/srcpkgs/abyss-desktop')
+     if (p / 'files/pinentry').is_file()), '')
+
+
+def luminance(hex_colour):
+    r, g, b = (int(hex_colour[i:i + 2], 16) / 255 for i in (1, 3, 5))
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+
+@unittest.skipUnless(PKG, 'abyss-desktop package not found; set ABYSS_DESKTOP_PKG')
+class DarkPinentryTest(unittest.TestCase):
+    """abyss-desktop's pinentry wrapper: pinentry-gtk-2 with the Abyss GTK 2
+    colours, the user's own GTK 2 settings after them."""
+
+    def setUp(self):
+        self.box = Sandbox()
+        self.addCleanup(self.box.close)
+        self.home = self.box.home
+        self.wrapper = Path(PKG) / 'files/pinentry'
+        self.rc = Path(PKG) / 'files/gtk2-dark.gtkrc'
+
+    def run_wrapper(self, gtk=True, **env):
+        show = 'printf "%s|%s\\n" "${0##*/} $*" "$GTK2_RC_FILES"'
+        if gtk:
+            stub(self.home / 'usr/bin', 'pinentry-gtk-2', show)
+        stub(self.home / 'usr/bin', 'pinentry', show)
+        env = {'HOME': str(self.home), 'PATH': f'{self.box.bin}:/usr/bin:/bin',
+               'ABYSS_PINENTRY_GTK': str(self.home / 'usr/bin/pinentry-gtk-2'),
+               'ABYSS_PINENTRY_FALLBACK': str(self.home / 'usr/bin/pinentry'), **env}
+        result = subprocess.run(['/bin/sh', str(self.wrapper), '--display', ':0'], env=env,
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return result.stdout.strip()
+
+    def test_pinentry_gtk_2_gets_the_abyss_colours_then_the_users(self):
+        self.assertEqual(self.run_wrapper(),
+                         f'pinentry-gtk-2 --display :0|/usr/share/abyss/gtk-2.0/gtkrc:{self.home}/.gtkrc-2.0')
+        self.assertEqual(self.run_wrapper(GTK2_RC_FILES='/mine'),
+                         'pinentry-gtk-2 --display :0|/usr/share/abyss/gtk-2.0/gtkrc:/mine')
+
+    def test_without_pinentry_gtk_2_voids_pinentry(self):
+        self.assertTrue(self.run_wrapper(gtk=False).startswith('pinentry --display :0|'))
+
+    def test_the_package_installs_them_where_the_wrapper_and_abyss_bar_look(self):
+        template = (Path(PKG) / 'template').read_text()
+        self.assertIn('vinstall ${FILESDIR}/pinentry 755 usr/libexec/abyss-desktop', template)
+        self.assertIn('vinstall ${FILESDIR}/gtk2-dark.gtkrc 644 usr/share/abyss/gtk-2.0 gtkrc', template)
+        self.assertIn('/usr/libexec/abyss-desktop/pinentry', BAR.read_text())
+
+    def test_the_colours_are_dark_with_light_text(self):
+        rc = self.rc.read_text()
+        colours = dict(re.findall(r'^\s*(\w+\[\w+\])\s*=\s*"(#[0-9a-fA-F]{6})"', rc, re.M))
+        for key in ('bg[NORMAL]', 'base[NORMAL]', 'bg[INSENSITIVE]', 'base[INSENSITIVE]'):
+            self.assertLess(luminance(colours[key]), 0.15, key)
+        for key in ('fg[NORMAL]', 'text[NORMAL]'):
+            self.assertGreater(luminance(colours[key]), 0.8, key)
+        self.assertIn('class "GtkWidget" style "abyss-dark"', rc)
+        self.assertNotRegex(rc, r'(?m)^\s*engine\b')   # GTK 2's own drawing: no engine package needed
 
 
 if __name__ == '__main__':

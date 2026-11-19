@@ -83,7 +83,29 @@ class SoftwareShortcutsTest(StubbedTest):
     def desktop_app(self, cmd, terminal=False):
         self.stub(cmd, 'exit 0')
         (self.root / f'applications/{cmd}.desktop').write_text(
-            f'[Desktop Entry]\nExec={cmd} %U\nTerminal={"true" if terminal else "false"}\n')
+            f'[Desktop Entry]\nType=Application\nExec={cmd} %U\nTerminal={"true" if terminal else "false"}\n')
+
+    def desktop_files(self, files):
+        """Desktop files as Void's packages ship them: {file name: body}."""
+        for name, body in files.items():
+            (self.root / 'applications' / name).write_text(body)
+
+    def audio_bundle(self, installed='pipewire\nwireplumber\npavucontrol\n'):
+        """Void's audio packages: pipewire.desktop and wireplumber.desktop start
+        the daemons (NoDisplay), pavucontrol's file has another name."""
+        self.write('installed', installed)
+        for cmd in ('pipewire', 'pipewire-pulse', 'wireplumber', 'pavucontrol'):
+            self.stub(cmd, 'exit 0')
+        self.desktop_files({
+            'pipewire.desktop': '[Desktop Entry]\nName=PipeWire\nExec=pipewire\nTerminal=false\n'
+                                'Type=Application\nNoDisplay=true\n',
+            'pipewire-pulse.desktop': '[Desktop Entry]\nExec=pipewire-pulse\nType=Application\nNoDisplay=true\n',
+            'wireplumber.desktop': '[Desktop Entry]\nExec=wireplumber\nTerminal=false\n'
+                                   'Type=Application\nNoDisplay=true\n',
+        })
+        if 'pavucontrol' in installed:
+            self.desktop_files({'org.pulseaudio.pavucontrol.desktop':
+                                '[Desktop Entry]\nName=Volume Control\nExec=pavucontrol\nType=Application\n'})
 
     def states(self):
         return {line.split('\t')[0]: line.split('\t')[1] for line in self.software('--installed').splitlines()}
@@ -209,6 +231,123 @@ class SoftwareShortcutsTest(StubbedTest):
         self.software('--open', 'firefox')
         self.software('--open', 'terminal-workspace')
         self.assertEqual(self.log('setsid.log'), ['sh -c firefox', 'st -t Terminal workspace -e sh -c vim'])
+
+    def test_audio_bundle_opens_the_mixer_not_the_pipewire_daemon(self):
+        self.dwm()
+        self.audio_bundle()
+        self.assertTrue(self.labels()['audio-support'].endswith('✓ installed · Super+Alt+A'))
+        self.software('--open', 'audio-support')
+        self.assertEqual(self.log('setsid.log'), ['sh -c pavucontrol'])
+
+    def test_wrong_shortcut_of_an_older_version_is_corrected_with_the_users_key(self):
+        # 27.3.5 gave Audio support a shortcut that ran pipewire; the user then
+        # moved it to Super+Alt+M. The record names the entry, not the program:
+        # it stays as the user set it and now opens the mixer.
+        self.dwm()
+        self.audio_bundle()
+        record = 'A\tsoftware-audio-support\t72\tm\tAudio support\texec:abyss-software --open audio-support'
+        self.conf.parent.mkdir(parents=True)
+        self.conf.write_text(record + '\n')
+        (self.root / '.config/abyss/software-shortcuts').write_text('audio-support\n')
+        self.assertTrue(self.labels()['audio-support'].endswith('✓ installed · Super+Alt+M'))
+        self.assertEqual(self.conf_lines(), [record])
+        self.software('--open', 'audio-support')
+        self.assertEqual(self.log('setsid.log'), ['sh -c pavucontrol'])
+
+    def test_bundle_with_only_hidden_desktop_files_loses_an_old_shortcut(self):
+        # pipewire and wireplumber without the mixer: nothing to open, so the
+        # shortcut an older version gave the daemon goes
+        self.dwm()
+        self.audio_bundle(installed='pipewire\nwireplumber\n')
+        self.conf.parent.mkdir(parents=True)
+        self.conf.write_text('A\tsoftware-audio-support\t72\ta\tAudio support\texec:abyss-software --open audio-support\n')
+        (self.root / '.config/abyss/software-shortcuts').write_text('audio-support\n')
+        label = self.labels()['audio-support']
+        self.assertEqual(label, 'Audio support (PipeWire + mixer)  (partly installed, missing: pavucontrol)')
+        self.assertEqual(self.conf_lines(), [])
+        self.software('--open', 'audio-support')
+        self.assertEqual(self.log('setsid.log'), [])
+
+    def test_only_shown_applications_with_a_command_are_opened(self):
+        self.write('catalog', 'Hidden\tpkg:a\nHidden2\tpkg:b\nLink\tpkg:c\nNo exec\tpkg:d\nAction\tpkg:e\n')
+        for cmd in 'abcde':
+            self.stub(cmd, 'exit 0')
+        self.write('installed', 'a\nb\nc\nd\ne\n')
+        self.desktop_files({
+            'a.desktop': '[Desktop Entry]\nType=Application\nExec=a\nHidden=true\n',
+            'b.desktop': '[Desktop Entry]\nType=Application\nExec=b\nNoDisplay = true\n',
+            'c.desktop': '[Desktop Entry]\nType=Link\nURL=https://example.org\nExec=c\n',
+            'd.desktop': '[Desktop Entry]\nType=Application\nExec=\n',
+            # NoDisplay of an action is not the app's
+            'e.desktop': '[Desktop Entry]\nType=Application\nExec=e --window %F\n'
+                         '[Desktop Action x]\nExec=e --x\nNoDisplay=true\n',
+        })
+        env = {'ABYSS_SOFTWARE_CATALOG': str(self.root / 'catalog'), 'ABYSS_NO_SHORTCUTS': '1'}
+        for key in ('hidden', 'hidden2', 'link', 'no-exec', 'action'):
+            self.software('--open', key, env=env)
+        self.assertEqual(self.log('setsid.log'), ['sh -c e --window'])
+
+    def test_every_catalogue_bundle_opens_its_real_app(self):
+        # the desktop files of Void's packages in the catalogue (aarch64,
+        # November 2026): which app each bundle opens, or none
+        self.dwm()
+        self.audio_bundle(installed='')
+        self.desktop_files({
+            'firefox.desktop': '[Desktop Entry]\nType=Application\nExec=/usr/lib/firefox/firefox %u\n'
+                               '[Desktop Action new-window]\nExec=/usr/lib/firefox/firefox --new-window %u\n',
+            'chromium.desktop': '[Desktop Entry]\nExec=chromium %U\nTerminal=false\nType=Application\n',
+            'virt-manager.desktop': '[Desktop Entry]\nExec=virt-manager\nType=Application\nTerminal=false\n',
+            'vlc.desktop': '[Desktop Entry]\nExec=/usr/bin/vlc --started-from-file %U\nTryExec=/usr/bin/vlc\n'
+                           'Terminal=false\nType=Application\n',
+            'thunar.desktop': '[Desktop Entry]\nExec=thunar %U\nTerminal=false\nType=Application\n',
+            'thunar-settings.desktop': '[Desktop Entry]\nExec=thunar-settings\nType=Application\n',
+            'org.pulseaudio.pavucontrol.desktop': '[Desktop Entry]\nExec=pavucontrol\nType=Application\n',
+            'lf.desktop': '[Desktop Entry]\nType=Application\nTerminal=true\nExec=lf\n',
+            # sorts before zathura's own file and runs zathura too, hidden
+            'org.pwmt.zathura-pdf-mupdf.desktop': '[Desktop Entry]\nType=Application\nExec=zathura %U\n'
+                                                  'Terminal=false\nNoDisplay=true\n',
+            'org.pwmt.zathura.desktop': '[Desktop Entry]\nType=Application\nExec=zathura %U\nTerminal=false\n',
+            'mpv.desktop': '[Desktop Entry]\nType=Application\nTryExec=mpv\n'
+                           'Exec=mpv --player-operation-mode=pseudo-gui -- %U\nTerminal=false\n',
+            'org.gnupg.pinentry-qt.desktop': '[Desktop Entry]\nType=Application\nExec=/usr/bin/pinentry-qt\n'
+                                             'NoDisplay=true\n',
+        })
+        commands = ('firefox chromium virt-manager vlc thunar pavucontrol pipewire wireplumber lf vim zathura mpv '
+                    'qemu-system-aarch64 virsh docker git pass gpg pinentry-gtk-2 pinentry-qt xclip yt-dlp ffmpeg '
+                    'bluetoothctl brightnessctl maim tmux fzf rg udisksctl').split()
+        for cmd in commands:
+            self.stub(cmd, 'exit 0')
+        packages = set()
+        for line in self.software('--list-entries', 'aarch64').splitlines():
+            action = line.split('\t')[1]
+            if action.startswith('pkg:'):
+                packages.update(action[4:].split())
+        self.write('installed', ''.join(p + '\n' for p in sorted(packages)))
+        opened = {}
+        for key in ('firefox', 'chromium', 'virtual-machines', 'docker-engine', 'vlc-media-player',
+                    'external-storage', 'git', 'audio-support', 'terminal-workspace', 'passwords',
+                    'writing-and-research', 'media-tools', 'bluetooth-support', 'laptop-brightness-controls',
+                    'screenshot-capture'):
+            (self.root / 'setsid.log').unlink(missing_ok=True)
+            self.software('--open', key)
+            opened[key] = self.log('setsid.log')
+        self.assertEqual(opened, {
+            'firefox': ['sh -c /usr/lib/firefox/firefox'],
+            'chromium': ['sh -c chromium'],
+            'virtual-machines': ['sh -c virt-manager'],
+            'docker-engine': [],
+            'vlc-media-player': ['sh -c /usr/bin/vlc --started-from-file'],
+            'external-storage': ['sh -c thunar'],
+            'git': [],
+            'audio-support': ['sh -c pavucontrol'],
+            'terminal-workspace': ['st -t Terminal workspace -e sh -c lf'],    # Void's vim has no desktop file
+            'passwords': [],
+            'writing-and-research': ['sh -c zathura'],
+            'media-tools': ['sh -c mpv --player-operation-mode=pseudo-gui --'],  # a bare "mpv" only prints help
+            'bluetooth-support': [],
+            'laptop-brightness-controls': [],
+            'screenshot-capture': [],
+        })
 
     def test_no_shortcuts_without_a_running_abyss_dwm(self):
         self.install_vscode_files()
