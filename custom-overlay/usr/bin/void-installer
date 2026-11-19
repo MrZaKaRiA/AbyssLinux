@@ -1480,6 +1480,16 @@ Hint: in a virtual machine a full disk on the host computer causes this too." 20
     unset copy_total copy_count copy_percent
 }
 
+# The installer exists on the live ISO only: remove it from the copied
+# rootfs, with the live ISO's /usr/local/bin/void-installer link to it
+# (Abyss), which would otherwise dangle on the installed system.
+remove_live_installer() {
+    rm -f $TARGETDIR/usr/sbin/void-installer
+    if [ "$(readlink $TARGETDIR/usr/local/bin/void-installer)" = /usr/bin/void-installer ]; then
+        rm -f $TARGETDIR/usr/local/bin/void-installer
+    fi
+}
+
 install_packages() {
     local _grub= _syspkg=
 
@@ -1703,7 +1713,7 @@ Root partition not empty! Aborting..." ${MSGBOXSIZE}
         . /etc/default/live.conf
         rm -f $TARGETDIR/etc/motd
         rm -f $TARGETDIR/etc/issue
-        rm -f $TARGETDIR/usr/sbin/void-installer
+        remove_live_installer
         # Remove modified sddm.conf to let sddm use the defaults.
         rm -f $TARGETDIR/etc/sddm.conf
         # Abyss: the live boot hook enabled LightDM autologin for the live

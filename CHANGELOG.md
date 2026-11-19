@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+* The shell helpers no longer print "Syntax error: Bad function name" in the emergency shell or any `sh -l`: `/etc/profile.d/zz-abyss-cli.sh` is plain POSIX sh, and the bash-only parts (`pkg-ui`, the prompt) moved to `/usr/share/abyss/abyss-cli.bash`, which only bash loads.
+* Updating removes the broken `/usr/local/bin/void-installer` link installed systems kept from the live ISO, and new installs no longer copy it.
 * **Clean, quiet start:** the Abyss logo on black from GRUB until the login screen, with no galaxy picture, progress bar or boot text. Boot text still appears when something fails, and Esc opens the GRUB menu. New package `abyss-boot` (plymouth theme and logo); abyss-desktop depends on it, so existing installs get the new start with the next update. Your own `GRUB_BACKGROUND`, GRUB theme or plymouth theme is kept.
 * **The login screen shows your own desktop wallpaper** (or black for "none"), like macOS, instead of the Orbit picture.
 * **Fixed:** Passwords › "Edit all fields in a terminal…" opened a terminal that closed at once. It now opens the login in your editor and saves it; without an editor it offers to install nano or to type the login again, and errors stay on screen.

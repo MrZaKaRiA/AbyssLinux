@@ -224,6 +224,42 @@ chroot() {
         self.assertFalse((esp / 'void_grub').exists())
 
 
+class LiveInstallerRemoved(FakeTarget):
+    """The copied live rootfs loses the installer and its /usr/local/bin link."""
+
+    def setUp(self):
+        super().setUp()
+        (self.target / 'usr/sbin').symlink_to('bin')          # as on Void
+        self.installer = self.target / 'usr/bin/void-installer'
+        self.installer.write_text('#!/bin/sh\n')
+        self.link = self.target / 'usr/local/bin/void-installer'
+        self.link.parent.mkdir(parents=True)
+
+    def remove(self):
+        self.bash(function('remove_live_installer') + 'remove_live_installer')
+
+    def test_installer_and_link_removed(self):
+        self.link.symlink_to('/usr/bin/void-installer')
+        self.remove()
+        self.assertFalse(os.path.lexists(self.installer))
+        self.assertFalse(os.path.lexists(self.link))
+        self.assertEqual(list(self.link.parent.iterdir()), [])
+
+    def test_other_files_kept(self):
+        for name, make in (('link', lambda: self.link.symlink_to('/usr/bin/something-else')),
+                           ('file', lambda: self.link.write_text('#!/bin/sh\n'))):
+            with self.subTest(name):
+                make()
+                self.remove()
+                self.assertTrue(os.path.lexists(self.link))
+                self.link.unlink()
+
+    def test_without_link(self):
+        self.remove()
+        self.assertFalse(os.path.lexists(self.installer))
+        self.assertEqual(list(self.link.parent.iterdir()), [])
+
+
 class DialogText(unittest.TestCase):
     def test_dialog_texts_are_ascii(self):
         # Only the ISO-639 language name table may contain non-ASCII text
