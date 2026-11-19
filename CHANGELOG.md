@@ -2,6 +2,7 @@
 
 ## v27.3.5 (2026-11-19)
 
+* **System log kept across restarts:** Abyss now enables Void's socklog (once per system, unless you use another system logger), so if the system ever freezes and has to be restarted, the kernel's messages from before the freeze are in `/var/log/socklog` (read them with `svlogtail` as root).
 * Installing Audio support (Install software, or `install pipewire` in a terminal) turns sound on right away: the bar shows the volume and Super+Alt+A opens a working mixer without logging out and back in.
 * **Sound after logging out and back in:** the volume block and sound controls no longer disappear after a logout. Abyss starts PipeWire fresh for each session and stops it at logout; older `~/.xinitrc` files are updated automatically (your own edits are kept, with a backup).
 * Install software: an app's keyboard shortcut opens the app itself. Super+Alt+A for Audio support now opens the volume mixer instead of restarting PipeWire, existing shortcuts are corrected and keep their keys, Media tools opens an mpv window, and bundles with nothing to open no longer get a shortcut.
