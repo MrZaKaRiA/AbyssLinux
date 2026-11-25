@@ -1,0 +1,103 @@
+#!/bin/sh
+# ==============================================================================
+# abyss-keyboard - X11 keyboard layout + modifier helper for Abyss Linux
+#
+#   abyss-keyboard               apply ~/.config/abyss/keyboard.conf (run by .xinitrc)
+#   abyss-keyboard --toggle      switch layout group (Alt+Shift does the same)
+#   abyss-keyboard --swap-super  toggle "Left Alt acts as Super" and save it
+#   abyss-keyboard --status      print layout, options and the modifier map
+#   abyss-keyboard --test        open xev to see what each key really sends
+#
+# Why the Super swap exists: VM viewers on macOS / Windows hosts (Lumen, UTM,
+# VirtualBox, ...) often keep Cmd / Win for the host, so dwm never sees Mod4
+# and Super+key arrives as a plain key. SWAP_SUPER=1 turns Left Alt into
+# Super (and Left Super into Alt). Default is off; use it when the VM viewer
+# does not forward Cmd/Win (in Lumen: enable "Capture system keys" instead).
+# ==============================================================================
+
+CONF="${XDG_CONFIG_HOME:-$HOME/.config}/abyss/keyboard.conf"
+
+# Defaults (overridden by $CONF)
+MODEL=pc105
+LAYOUTS="us,ara"
+VARIANTS=",digits"          # Arabic with Western (0-9) digits
+TOGGLE="grp:alt_shift_toggle"
+CAPS="caps:escape"
+SWAP_SUPER=0                # 0 | 1 | auto (auto = swap only inside a VM)
+
+[ -r "$CONF" ] && . "$CONF"
+
+has() { command -v "$1" >/dev/null 2>&1; }
+
+notify() {
+    if has notify-send; then notify-send -a "Abyss" "Keyboard" "$1"; else echo "$1"; fi
+}
+
+in_vm() {
+    grep -qw hypervisor /proc/cpuinfo 2>/dev/null && return 0
+    for f in /sys/class/dmi/id/sys_vendor /sys/class/dmi/id/product_name; do
+        [ -r "$f" ] && grep -qiE 'qemu|kvm|virtualbox|innotek|vmware|parallels|xen|bochs|virtual machine|apple virtualization' "$f" && return 0
+    done
+    grep -qs 'linux,dummy-virt' /sys/firmware/devicetree/base/compatible && return 0
+    # Apple Virtualization.framework and most hypervisors expose virtio devices
+    [ -n "$(ls /sys/bus/virtio/devices 2>/dev/null)" ]
+}
+
+swap_active() {
+    case "$SWAP_SUPER" in
+        1|yes|true) return 0 ;;
+        auto)       in_vm ;;
+        *)          return 1 ;;
+    esac
+}
+
+apply() {
+    has setxkbmap || { echo "abyss-keyboard: setxkbmap is not installed" >&2; return 1; }
+
+    opts="$TOGGLE,$CAPS,grp_led:scroll"
+    swap_active && opts="$opts,altwin:swap_lalt_lwin"
+
+    # -option "" clears stale options before applying ours
+    setxkbmap -model "$MODEL" -layout "$LAYOUTS" -variant "$VARIANTS" -option "" -option "$opts"
+}
+
+save_swap() {
+    mkdir -p "${CONF%/*}"
+    if [ -f "$CONF" ] && grep -q '^SWAP_SUPER=' "$CONF"; then
+        sed -i "s/^SWAP_SUPER=.*/SWAP_SUPER=$1/" "$CONF"
+    else
+        echo "SWAP_SUPER=$1" >> "$CONF"
+    fi
+}
+
+case "${1:-}" in
+    --toggle)
+        # Alt+Shift is the real toggle (XKB group lock). Re-ordering layouts with
+        # setxkbmap is avoided on purpose: dwm resolves keysyms from group 1, so
+        # an Arabic first group would break every Super+letter binding.
+        if has xkb-switch; then xkb-switch -n; else notify "Press Alt+Shift to switch EN / AR"; fi
+        ;;
+    --swap-super)
+        if swap_active; then SWAP_SUPER=0; else SWAP_SUPER=1; fi
+        save_swap "$SWAP_SUPER"
+        apply
+        if swap_active; then notify "Left Alt now works as Super (Mod4)"
+        else notify "Super is back on the Win/Cmd key"; fi
+        ;;
+    --status)
+        setxkbmap -query 2>/dev/null
+        swap_active && echo "super:   Left Alt (swapped)" || echo "super:   Win/Cmd key"
+        has xmodmap && xmodmap -pm | awk '/^mod1|^mod4/'
+        ;;
+    --test)
+        if has xev; then
+            st -t "Key test - press keys, close window to quit" -e sh -c \
+                "echo 'Super must show up as Super_L and state 0x40 (Mod4).'; echo; xev -event keyboard | grep --line-buffered -E 'keysym|state'"
+        else
+            notify "Install xev to test keys"
+        fi
+        ;;
+    *)
+        apply
+        ;;
+esac

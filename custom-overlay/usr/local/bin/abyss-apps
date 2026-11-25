@@ -1,0 +1,186 @@
+#!/bin/sh
+# ==============================================================================
+# abyss-apps - installed applications for the Abyss menu
+#
+#   abyss-apps --xmenu [DEPTH]   xmenu lines: one submenu per category, every
+#                                app with its icon and what it is
+#                                ("Thunar · File Manager"), indented DEPTH tabs
+#   abyss-apps --refresh         rebuild the cache now
+#
+# Reads the .desktop files of the system, the user and Flatpak, skips hidden
+# entries, groups them by freedesktop main category and resolves each icon in
+# the Abyss -> Papirus-Dark -> Papirus -> hicolor -> Adwaita themes (SVG is
+# fine: xmenu loads it through imlib2/librsvg).
+# The result is cached in ~/.cache/abyss/apps.xmenu and rebuilt when an
+# application is added, removed or changed.
+# ==============================================================================
+
+CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/abyss"
+CACHE="$CACHE_DIR/apps.xmenu"
+DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
+
+APP_DIRS="$DATA_HOME/applications
+$DATA_HOME/flatpak/exports/share/applications
+/var/lib/flatpak/exports/share/applications
+/usr/local/share/applications
+/usr/share/applications"
+
+ICON_ROOTS="$DATA_HOME/icons
+$DATA_HOME/flatpak/exports/share/icons
+/var/lib/flatpak/exports/share/icons
+/usr/share/icons"
+
+stale() {
+    [ -s "$CACHE" ] || return 0
+    echo "$APP_DIRS" | while IFS= read -r d; do
+        [ -d "$d" ] || continue
+        # a newer directory = app added/removed; a newer file = app changed
+        if [ "$d" -nt "$CACHE" ] || [ -n "$(find "$d" -maxdepth 1 -name '*.desktop' -newer "$CACHE" 2>/dev/null | head -n 1)" ]; then
+            echo stale; break
+        fi
+    done | grep -q stale
+}
+
+# "name<TAB>path" for every app/category icon, best candidates first:
+# preferred themes, then sizes that look sharp in a menu row.
+icon_index() {
+    echo "$ICON_ROOTS" | while IFS= read -r root; do
+        [ -d "$root" ] || continue
+        for theme in Abyss Papirus-Dark Papirus hicolor Adwaita; do
+            [ -d "$root/$theme" ] || continue
+            for size in 48x48 32x32 64x64 24x24 scalable 128x128 22x22 16x16; do
+                for ctx in apps categories devices mimetypes places; do
+                    dir="$root/$theme/$size/$ctx"
+                    [ -d "$dir" ] || continue
+                    find "$dir" -maxdepth 1 \( -name '*.svg' -o -name '*.png' \) 2>/dev/null |
+                        awk -F/ '{ n = $NF; sub(/\.(svg|png)$/, "", n); print n "\t" $0 }'
+                done
+            done
+        done
+    done
+    for f in /usr/share/pixmaps/*.png /usr/share/pixmaps/*.svg; do
+        [ -f "$f" ] || continue
+        n=${f##*/}; printf '%s\t%s\n' "${n%.*}" "$f"
+    done
+}
+
+desktop_files() {
+    echo "$APP_DIRS" | while IFS= read -r d; do
+        [ -d "$d" ] && find "$d" -maxdepth 1 -name '*.desktop' 2>/dev/null
+    done
+}
+
+build() {
+    mkdir -p "$CACHE_DIR"
+    idx="$CACHE_DIR/icons.idx"
+    icon_index > "$idx"
+    files=$(desktop_files)
+    [ -n "$files" ] || { : > "$CACHE"; return; }
+
+    # shellcheck disable=SC2086
+    echo "$files" | tr '\n' '\0' | xargs -0 awk -v IDX="$idx" '
+    function flush() {
+        if (fn == "" || seen[id]++) return
+        if (type != "Application" || nodisplay || hidden || name == "" || exec == "") return
+        if (onlyshow != "" && onlyshow !~ /(^|;)(X-Abyss|dwm)(;|$)/) return
+        cat = category(cats)
+        desc = generic != "" ? generic : comment
+        if (length(desc) > 42) desc = substr(desc, 1, 40) "…"
+        if (tolower(desc) == tolower(name)) desc = ""
+        label = desc != "" ? name "  ·  " desc : name
+        gsub(/%[fFuUdDnNickvm]/, "", exec); gsub(/%%/, "%", exec)
+        gsub(/[ \t]+$/, "", exec)
+        cmd = terminal ? "term-exec:" exec : "exec:" exec
+        ic = icon_path(icon)
+        printf "%s\t%s\t%s\t%s\n", cat, tolower(name), (ic != "" ? "IMG:" ic "\t" : "") label, cmd
+    }
+    function category(c) {
+        if (c ~ /(^|;)Game(;|$)/)                         return "08|Games"
+        if (c ~ /(^|;)Development(;|$)/)                  return "03|Development"
+        if (c ~ /(^|;)Graphics(;|$)/)                     return "04|Graphics"
+        if (c ~ /(^|;)(AudioVideo|Audio|Video)(;|$)/)     return "05|Sound & Video"
+        if (c ~ /(^|;)Network(;|$)/)                      return "01|Internet"
+        if (c ~ /(^|;)Office(;|$)/)                       return "02|Office"
+        if (c ~ /(^|;)(Education|Science)(;|$)/)          return "07|Education & Science"
+        if (c ~ /(^|;)Settings(;|$)/)                     return "10|Settings"
+        if (c ~ /(^|;)System(;|$)/)                       return "09|System"
+        if (c ~ /(^|;)Utility(;|$)/)                      return "06|Accessories"
+        return "11|Other"
+    }
+    function icon_path(i) {
+        if (i == "") return ""
+        if (i ~ /^\//) return (system("test -r \"" i "\"") == 0) ? i : ""
+        return (i in icons) ? icons[i] : ""
+    }
+    BEGIN {
+        while ((getline line < IDX) > 0) {
+            split(line, p, "\t")
+            if (!(p[1] in icons)) icons[p[1]] = p[2]   # first = preferred
+        }
+    }
+    FNR == 1 {
+        flush()
+        fn = FILENAME; id = FILENAME; sub(/.*\//, "", id)
+        insec = 0; type = name = generic = comment = icon = exec = cats = onlyshow = ""
+        terminal = nodisplay = hidden = 0
+    }
+    /^\[/ { insec = ($0 == "[Desktop Entry]"); next }
+    !insec { next }
+    {
+        k = $0; sub(/=.*/, "", k); v = $0; sub(/^[^=]*=/, "", v)
+        if      (k == "Type")        type = v
+        else if (k == "Name")        name = v
+        else if (k == "GenericName") generic = v
+        else if (k == "Comment")     comment = v
+        else if (k == "Icon")        icon = v
+        else if (k == "Exec")        exec = v
+        else if (k == "Categories")  cats = v
+        else if (k == "OnlyShowIn")  onlyshow = v
+        else if (k == "Terminal")    terminal = (v == "true")
+        else if (k == "NoDisplay")   nodisplay = (v == "true")
+        else if (k == "Hidden")      hidden = (v == "true")
+    }
+    END { flush() }
+    ' 2>/dev/null | sort -t "$(printf '\t')" -k1,1 -k2,2 | awk -F'\t' '
+    {
+        split($1, c, "|")
+        if (c[2] != last) { print c[2]; last = c[2] }
+        line = $3; for (i = 4; i <= NF; i++) line = line "\t" $i
+        print "\t" line
+    }' > "$CACHE.tmp" && mv "$CACHE.tmp" "$CACHE"
+}
+
+# Category headers get a glyph; xmenu shows apps with their real icons.
+category_glyph() {
+    case "$1" in
+        Internet) printf '\357\202\254' ;;              # globe
+        Office) printf '\363\260\210\231' ;;            # file-document
+        Development) printf '\357\204\241' ;;           # code
+        Graphics) printf '\363\260\217\230' ;;          # palette
+        "Sound & Video") printf '\363\260\235\232' ;;   # music
+        Accessories) printf '\357\202\255' ;;           # wrench
+        "Education & Science") printf '\363\260\221\264' ;; # school
+        Games) printf '\363\260\212\227' ;;             # gamepad
+        System) printf '\357\204\240' ;;                # terminal
+        Settings) printf '\357\200\223' ;;              # cog
+        *) printf '\363\260\200\273' ;;                 # apps
+    esac
+}
+
+xmenu_out() {
+    depth="${1:-0}"
+    pad=""; i=0
+    while [ "$i" -lt "$depth" ]; do pad="$pad	"; i=$((i + 1)); done
+    while IFS= read -r line; do
+        case "$line" in
+            "	"*) printf '%s%s\n' "$pad" "$line" ;;
+            *)      printf '%s%s  %s\n' "$pad" "$(category_glyph "$line")" "$line" ;;
+        esac
+    done < "$CACHE"
+}
+
+case "${1:-}" in
+    --refresh) build ;;
+    --xmenu)   stale && build; xmenu_out "${2:-0}" ;;
+    *)         echo "usage: abyss-apps --xmenu [DEPTH] | --refresh" >&2; exit 2 ;;
+esac

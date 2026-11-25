@@ -1,0 +1,10 @@
+if [ -x /sbin/agetty -o -x /bin/agetty ]; then
+	# util-linux specific settings
+	if [ "${tty}" = "tty1" ]; then
+		# Silent autologin: no issue banner, no "login:" line, screen cleared.
+		GETTY_ARGS="--skip-login --nonewline --noissue -a anon"
+	fi
+fi
+
+BAUD_RATE=38400
+TERM_NAME=linux

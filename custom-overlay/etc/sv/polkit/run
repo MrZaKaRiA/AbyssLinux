@@ -1,0 +1,6 @@
+#!/bin/sh
+exec 2>&1
+if [ -x /usr/lib/polkit-1/polkitd ]; then
+    exec /usr/lib/polkit-1/polkitd --no-debug
+fi
+exec chpst -b polkit pause

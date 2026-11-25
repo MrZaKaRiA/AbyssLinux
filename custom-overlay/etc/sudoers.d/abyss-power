@@ -1,0 +1,3 @@
+# Abyss Linux: wheel may run the power helper without a password.
+# The script only accepts poweroff|reboot|suspend|hibernate|diagnose.
+%wheel ALL=(root) NOPASSWD: /usr/local/bin/abyss-power

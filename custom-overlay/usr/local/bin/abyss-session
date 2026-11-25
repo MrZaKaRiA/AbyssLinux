@@ -1,0 +1,10 @@
+#!/bin/sh
+# ==============================================================================
+# abyss-session - X session started by LightDM ("Abyss (dwm)" in the greeter)
+# Runs the user's ~/.xinitrc, the same file startx uses, so there is a single
+# place to customise the session. Falls back to the stock one from /etc/skel.
+# ==============================================================================
+if [ -f "$HOME/.xinitrc" ]; then
+    exec /bin/sh "$HOME/.xinitrc"
+fi
+exec /bin/sh /etc/skel/.xinitrc

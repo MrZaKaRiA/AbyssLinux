@@ -1,0 +1,22 @@
+#!/bin/sh
+# ==============================================================================
+# abyss-launcher - rofi app launcher sized for the screen (Xft.dpi)
+#
+#   abyss-launcher            apps (.desktop entries)    Super+Alt+r, menu > Apps
+#   abyss-launcher run        any program in $PATH       menu > Run program
+#   abyss-launcher window     switch to an open window   Super+Alt+w
+#
+# Falls back to the themed dmenu when rofi is not installed.
+# ==============================================================================
+
+PATH="/usr/local/bin:${PATH}"
+mode="${1:-drun}"
+
+dpi=$(xrdb -query 2>/dev/null | awk '$1 == "Xft.dpi:" {print int($2); exit}')
+
+if command -v rofi >/dev/null 2>&1; then
+    exec rofi -show "$mode" ${dpi:+-dpi "$dpi"}
+fi
+
+exec dmenu_run -i -c -l 15 -fn "JetBrainsMono Nerd Font:size=10" \
+    -nb "#0d0b18" -nf "#f3e8ff" -sb "#a855f7" -sf "#090514" -p "Run"
